@@ -1,0 +1,55 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+
+[project]
+name = "seed-cli"
+version = "1.0.0"
+description = "Terraform-inspired filesystem orchestration tool"
+requires-python = ">=3.10"
+readme = "README.md"
+authors = [
+    {name = "Isaac AR", email="isaac@fortisvincere.com"}
+]
+license = {text = "MIT"}
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+]
+dependencies = [
+  "pyyaml",
+]
+
+[project.optional-dependencies]
+image = ["pillow", "pytesseract"]
+ui = ["rich"]
+dev = [
+    "black==23.3.0",
+    "pytest",
+    "pytest-asyncio",
+    "pre-commit",
+    "hypothesis>=6.103.1",
+    "hypothesis[numpy]>=6.103.1",
+]
+
+
+[project.scripts]
+seed = "seed_cli.cli:main"
+
+[tool.hatch.build.sources]
+src = "src"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/seed_cli"]
+
+
+[tool.black]
+line-length = 88
+required-version = "23.3.0"                         # Black will refuse to run if it's not this version.
+target-version = ['py38', 'py39', 'py310', 'py311', 'py312']
+
+
+[tool.mypy]
+ignore_errors = false

@@ -1,0 +1,20 @@
+{
+  "type": "object",
+  "required": [
+    "entries"
+  ],
+  "properties": {
+    "root": {
+      "type": "string"
+    },
+    "include": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "entries": {
+      "type": "array"
+    }
+  }
+}

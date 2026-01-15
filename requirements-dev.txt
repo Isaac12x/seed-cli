@@ -1,0 +1,6 @@
+black==23.3.0
+pytest
+pytest-asyncio
+pre-commit
+hypothesis>=6.103.1
+hypothesis[numpy]>=6.103.1
