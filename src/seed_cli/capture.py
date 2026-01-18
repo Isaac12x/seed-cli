@@ -7,6 +7,7 @@ Capture the current filesystem into a spec representation.
 Supports:
 - tree text output
 - JSON structured output
+- Graphviz DOT format output
 
 Used for:
 - bootstrapping specs from existing projects
@@ -14,7 +15,7 @@ Used for:
 """
 
 from pathlib import Path
-from typing import List, Dict, Iterable
+from typing import List, Dict, Iterable, Optional
 import fnmatch
 import json
 
@@ -77,3 +78,9 @@ def to_json(nodes: List[Node]) -> str:
             "type": "dir" if n.is_dir else "file",
         })
     return json.dumps({"entries": entries}, indent=2)
+
+
+def to_dot(nodes: List[Node]) -> str:
+    """Render nodes to Graphviz DOT format."""
+    from .graphviz import nodes_to_dot
+    return nodes_to_dot(nodes)

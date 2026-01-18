@@ -97,14 +97,19 @@ def parse_spec(
     base: Optional[Path] = None,
     mode: str = "loose",
 ) -> Tuple[Optional[Path], List[Node]]:
-    """Parse a spec file (text or image) into nodes.
+    """Parse a spec file (text, image, or graphviz) into nodes.
     
-    Handles both text files (.tree, .yaml, .json) and image files (.png, .jpg, .jpeg).
+    Handles:
+    - Text files (.tree, .yaml, .json)
+    - Image files (.png, .jpg, .jpeg) - uses OCR
+    - Graphviz files (.dot) - parses DOT format
+    
     For text files, reads and parses the content.
     For image files, uses OCR to extract text then parses it.
+    For DOT files, parses the graph structure into nodes.
     
     Args:
-        spec_path: Path to spec file or image
+        spec_path: Path to spec file, image, or DOT file
         vars: Optional template variables
         base: Optional base directory
         mode: Parse mode ("loose" or "strict")
@@ -113,12 +118,23 @@ def parse_spec(
         tuple: (spec_path, nodes)
     """
     from .image import parse_image
+    from .graphviz import dot_to_nodes
     
     path = Path(spec_path)
     
     # Handle image files
     if path.suffix.lower() in (".png", ".jpg", ".jpeg"):
-        return parse_image(path, vars=vars, mode=mode)
+        return extract_text_from_image_cv2(path, vars=vars,mode=mode)
+    
+    # Handle DOT files
+    if path.suffix.lower() == ".dot":
+        text = read_input(spec_path)
+        # Apply vars if provided (though DOT files typically don't use vars)
+        if vars:
+            from .templating import apply_vars
+            text = apply_vars(text, vars)
+        nodes = dot_to_nodes(text)
+        return path, nodes
     
     # Handle text files
     text = read_input(spec_path)

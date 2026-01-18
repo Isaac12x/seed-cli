@@ -10,7 +10,7 @@ from seed_cli.ui import Summary, render_summary, render_list
 from seed_cli.parsers import read_input, parse_any
 from seed_cli.includes import resolve_includes
 from seed_cli.templating import apply_vars
-from seed_cli.capture import capture_nodes, to_tree_text, to_json
+from seed_cli.capture import capture_nodes, to_tree_text, to_json, to_dot
 from seed_cli.exporter import (
     export_tree,
     export_json_spec,
@@ -23,7 +23,7 @@ from seed_cli.apply import apply
 from seed_cli.sync import sync
 from seed_cli.doctor import doctor
 from seed_cli.graphviz import plan_to_dot
-from seed_cli.image import parse_image
+from seed_cli.image import parse_image, extract_text_from_image_cv2
 from seed_cli.hooks import run_hooks, load_filesystem_hooks
 from seed_cli.templates import install_git_hook
 from seed_cli.plugins import load_plugins
@@ -42,9 +42,13 @@ def parse_vars(values):
 
 
 def parse_spec_file(spec_path: str, vars: dict, base: Path, plugins: list, context: dict) -> tuple[Path, list]:
-    """Parse a spec file (text or image) into nodes.
+    """Parse a spec file (text, image, or graphviz) into nodes.
     
-    Handles both text files (.tree, .yaml, .json) and image files (.png, .jpg, .jpeg).
+    Handles:
+    - Text files (.tree, .yaml, .json)
+    - Image files (.png, .jpg, .jpeg)
+    - Graphviz files (.dot)
+    
     Applies includes, vars, and plugin hooks.
     
     Returns:
@@ -56,6 +60,11 @@ def parse_spec_file(spec_path: str, vars: dict, base: Path, plugins: list, conte
     
     # For image files, parse directly (includes/vars handled by parse_image -> parse_any)
     if spec.suffix.lower() in (".png", ".jpg", ".jpeg"):
+        _, nodes = parse_spec(spec_path, vars=vars, base=base)
+        return spec, nodes
+    
+    # For DOT files, parse directly (vars handled by parse_spec)
+    if spec.suffix.lower() == ".dot":
         _, nodes = parse_spec(spec_path, vars=vars, base=base)
         return spec, nodes
     
@@ -108,7 +117,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Parse spec, run plugin parse + plan lifecycle, and output plan",
         help="Parse spec and generate execution plan",
     )
-    sp.add_argument("spec", help="Spec file (.tree, .yaml, .json, or image)")
+    sp.add_argument("spec", help="Spec file (.tree, .yaml, .json, .dot, or image)")
     sp.add_argument("--base", default=".", help="Base directory (default: current directory)")
     sp.add_argument("--vars", action="append", help="Template variables (key=value)")
     sp.add_argument("--out", help="Output plan to file (JSON format)")
@@ -163,6 +172,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sc.add_argument("--base", default=".", help="Base directory (default: current directory)")
     sc.add_argument("--json", action="store_true", help="Output in JSON format")
+    sc.add_argument("--dot", action="store_true", help="Output in Graphviz DOT format")
     sc.add_argument("--out", help="Output file path. If not specified, output is printed to stdout")
 
     # export
@@ -202,6 +212,25 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         help="Hook name to install (e.g. pre-commit). Defaults to pre-commit if not specified.",
     )
+
+    # utils
+    sut = sub.add_parser(
+        "utils",
+        description="Utility functions for common operations",
+        help="Utility functions",
+    )
+    utils_sub = sut.add_subparsers(dest="util_action", required=True, help="Utility action")
+    
+    # extract-tree subcommand
+    extract_tree = utils_sub.add_parser(
+        "extract-tree",
+        description="Extract tree structure from an image using OCR",
+        help="Extract tree structure from image",
+    )
+    extract_tree.add_argument("image", help="Path to image file (.png, .jpg, .jpeg)")
+    extract_tree.add_argument("--out", help="Output .tree file path (default: image path with .tree extension)")
+    extract_tree.add_argument("--vars", action="append", help="Template variables (key=value)")
+    extract_tree.add_argument("--raw", action="store_true", help="Output raw OCR text without cleaning (for debugging)")
 
     return p
 
@@ -334,7 +363,9 @@ def main(argv=None) -> int:
     # ---------------- CAPTURE ----------------
     if args.cmd == "capture":
         nodes = capture_nodes(base)
-        if args.json:
+        if args.dot:
+            output = to_dot(nodes)
+        elif args.json:
             output = to_json(nodes)
         else:
             output = to_tree_text(nodes)
@@ -423,6 +454,48 @@ def main(argv=None) -> int:
                 install_git_hook(base, h)
                 print(f"Installed git hook: {h}")
         return 0
+
+    # ---------------- UTILS ----------------
+    if args.cmd == "utils":
+        from seed_cli.utils import extract_tree_from_image, has_image_support
+        
+        if args.util_action == "extract-tree":
+            # Check if image support is available
+            if not has_image_support():
+                print("Error: Image extraction requires optional dependencies.")
+                print("Please install: pip install seed-cli[image]")
+                return 1
+            
+            image_path = Path(args.image)
+            output_path = Path(args.out) if args.out else None
+            vars_dict = parse_vars(getattr(args, "vars", []))
+            
+            try:
+                result_path = extract_tree_from_image(
+                    image_path,
+                    output_path,
+                    vars=vars_dict if vars_dict else None,
+                    raw=getattr(args, "raw", False),
+                )
+                if getattr(args, "raw", False):
+                    print(f"Successfully extracted raw OCR text to: {result_path}")
+                else:
+                    print(f"Successfully extracted tree structure to: {result_path}")
+                return 0
+            except FileNotFoundError as e:
+                print(f"Error: {e}")
+                return 1
+            except RuntimeError as e:
+                print(f"Error: {e}")
+                return 1
+            except Exception as e:
+                log.error(f"Error extracting tree from image: {e}")
+                if args.debug:
+                    import traceback
+                    traceback.print_exc()
+                return 1
+        
+        return 1
 
     return 1
 
