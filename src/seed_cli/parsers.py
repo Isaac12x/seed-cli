@@ -40,7 +40,7 @@ class Node:
 _COMMENT_RE = re.compile(r"\(([^)]+)\)|//(.*)$|#(.*)$")
 _ANNOT_RE = re.compile(r"@([a-zA-Z_][\w-]*)")
 TREE_LINE = re.compile(r"""
-^(?P<prefix>[\s│]*)(?P<branch>├──|└──)?\s*(?P<name>.+?)\s*$
+^(?P<prefix>[\s│|]*)(?P<branch>├──|└──)?\s*(?P<name>.+?)\s*$
 """, re.VERBOSE)
 
 def _tree_depth(prefix: str) -> int:
@@ -63,7 +63,8 @@ def _extract_comment_and_annotation(text: str) -> tuple[str, Optional[str], Opti
 
     com = _COMMENT_RE.search(text)
     if com:
-        comment = com.group(1).strip()
+        # Check which group matched: (1) parenthetical, (2) //, (3) #
+        comment = (com.group(1) or com.group(2) or com.group(3) or "").strip()
         text = _COMMENT_RE.sub("", text)
 
     return text.strip(), comment, annotation
@@ -141,9 +142,19 @@ def parse_spec(
     return parse_any(spec_path, text, vars=vars, base=base, mode=mode)
 
 
+_TEMPLATE_VAR_RE = re.compile(r"^<([a-zA-Z_][a-zA-Z0-9_]*)>$")
+
+
 def parse_tree_text(text: str, *args, **kwargs) -> List["Node"]:
     """
     Parse `tree`-like text into Nodes with correct hierarchical paths.
+
+    Special syntax:
+    - `...` as a child entry marks the parent directory as allowing extra files.
+      This creates a marker node with annotation="extras".
+    - `<varname>/` marks a template directory that can match multiple actual directories.
+      This creates a marker node with annotation="template:<varname>".
+      Children of template dirs inherit the template path.
     """
     nodes: List["Node"] = []
 
@@ -155,14 +166,14 @@ def parse_tree_text(text: str, *args, **kwargs) -> List["Node"]:
         if not line:
             continue
 
-        # Skip the very first root line 
+        # Skip the very first root line
         if line.endswith("/") and ("├──" not in line and "└──" not in line):
             # Create explicit root node as "."
             nodes.append(_make_node(rel=".", is_dir=True))
             stack = [Path(".")]
             continue
 
-        # Skip empty lines, sometimes those are added by the tree command 
+        # Skip empty lines, sometimes those are added by the tree command
         if not line.strip() or line.strip() == "|":
             continue
 
@@ -175,6 +186,19 @@ def parse_tree_text(text: str, *args, **kwargs) -> List["Node"]:
 
         # Extract comment and annotation before processing name
         name, comment, annotation = _extract_comment_and_annotation(name)
+
+        # Handle "..." marker for allowing extras in parent directory
+        if name == "..." or name == "…":
+            depth = _tree_depth(prefix)
+            if not stack:
+                stack = [Path(".")]
+            if depth + 1 <= len(stack):
+                stack = stack[: depth + 1]
+            parent = stack[-1] if stack else Path(".")
+            # Create marker node: path is parent/..., annotation is "extras"
+            marker_path = (parent / "...").as_posix()
+            nodes.append(_make_node(rel=marker_path, is_dir=False, comment=comment, annotation="extras"))
+            continue
 
         is_dir = name.endswith("/")
         if is_dir:
@@ -192,6 +216,25 @@ def parse_tree_text(text: str, *args, **kwargs) -> List["Node"]:
             stack = stack[: depth + 1]
 
         parent = stack[-1] if stack else Path(".")
+
+        # Check if this is a template variable directory like <version_id>
+        template_match = _TEMPLATE_VAR_RE.match(name)
+        if template_match and is_dir:
+            var_name = template_match.group(1)
+            # Keep the <varname> in the path for matching logic
+            path = (parent / name).as_posix()
+            nodes.append(_make_node(
+                rel=path,
+                is_dir=True,
+                comment=comment,
+                annotation=f"template:{var_name}"
+            ))
+            # Push to stack so children can reference this template path
+            while len(stack) <= depth + 1:
+                stack.append(Path("."))
+            stack[depth + 1] = Path(path)
+            continue
+
         path = (parent / name).as_posix()
 
         nodes.append(_make_node(rel=path, is_dir=is_dir, comment=comment, annotation=annotation))

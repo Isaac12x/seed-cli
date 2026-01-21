@@ -62,11 +62,15 @@ def apply(
     lock_ttl: int = 300,
     lock_timeout: int = 30,
     lock_renew: int = 10,
+    snapshot: bool = True,
 ) -> dict:
     """Apply a spec or plan.
 
     If `spec_or_plan_path` ends with `.json`, it is treated as a saved plan.
     Otherwise it is parsed as a spec and planned before execution.
+
+    Creates a snapshot before making changes (unless dry_run or snapshot=False).
+    Use `seed revert` to undo changes.
     """
     base = base.resolve()
     path = Path(spec_or_plan_path)
@@ -97,6 +101,12 @@ def apply(
 
     for p in plugins:
         p.before_build(plan, context)
+
+    # Create snapshot before making changes
+    snapshot_id = None
+    if snapshot and not dry_run and plan.steps:
+        from .snapshot import create_snapshot
+        snapshot_id = create_snapshot(base, plan, "apply", spec_or_plan_path)
 
     # State + locking
     heartbeat = None
@@ -131,5 +141,8 @@ def apply(
 
     for p in plugins:
         p.after_build(context)
+
+    if snapshot_id:
+        result["snapshot_id"] = snapshot_id
 
     return result

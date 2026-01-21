@@ -1,5 +1,5 @@
 name: ci-cd
-on: ["create"]
+on: ["create"] release/v*
 jobs:
   pypi-publish:
     name: Upload release to PyPI

@@ -45,6 +45,7 @@ class Summary:
 
 
 def render_summary(summary: Summary) -> str:
+    from io import StringIO
     if _RICH:
         table = Table(title="Seed Summary")
         table.add_column("Action")
@@ -53,9 +54,10 @@ def render_summary(summary: Summary) -> str:
         table.add_row("Updated", str(summary.updated))
         table.add_row("Deleted", str(summary.deleted))
         table.add_row("Skipped", str(summary.skipped))
-        console = Console(record=True)
+        buf = StringIO()
+        console = Console(file=buf, force_terminal=True)
         console.print(table)
-        return console.export_text()
+        return buf.getvalue()
     else:
         return (
             f"Created: {summary.created}\n"
@@ -66,6 +68,7 @@ def render_summary(summary: Summary) -> str:
 
 
 def render_list(title: str, items: Iterable[str]) -> str:
+    from io import StringIO
     items = list(items)
     if not items:
         return f"{title}: none"
@@ -75,15 +78,17 @@ def render_list(title: str, items: Iterable[str]) -> str:
         table.add_column("Item")
         for i in items:
             table.add_row(i)
-        console = Console(record=True)
+        buf = StringIO()
+        console = Console(file=buf, force_terminal=True)
         console.print(table)
-        return console.export_text()
+        return buf.getvalue()
     else:
         body = "\n".join(f"- {i}" for i in items)
         return f"{title}:\n{body}"
 
 
 def render_kv(title: str, kv: Dict[str, str]) -> str:
+    from io import StringIO
     if not kv:
         return f"{title}: none"
 
@@ -93,9 +98,10 @@ def render_kv(title: str, kv: Dict[str, str]) -> str:
         table.add_column("Value")
         for k, v in kv.items():
             table.add_row(str(k), str(v))
-        console = Console(record=True)
+        buf = StringIO()
+        console = Console(file=buf, force_terminal=True)
         console.print(table)
-        return console.export_text()
+        return buf.getvalue()
     else:
         body = "\n".join(f"{k}: {v}" for k, v in kv.items())
         return f"{title}:\n{body}"

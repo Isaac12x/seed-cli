@@ -66,7 +66,7 @@ class PlanResult:
     delete: int
     delete_skipped: int
 
-    def to_text(self) -> str:
+    def to_text(self, show_skip: bool = True) -> str:
         from .ui import format_step
 
         lines: List[str] = []
@@ -76,7 +76,10 @@ class PlanResult:
         )
         lines.append("")
         lines.append("Actions:")
-        lines.extend(format_step(s) for s in self.steps)
+        for s in self.steps:
+            if not show_skip and s.op == "skip":
+                continue
+            lines.append(format_step(s))
         return "\n".join(lines)
 
     def to_json(self) -> dict:

@@ -41,16 +41,19 @@ def sync(
     lock_ttl: int = 300,
     lock_timeout: int = 30,
     lock_renew: int = 10,
+    snapshot: bool = True,
 ) -> dict:
     """Sync filesystem to spec.
 
     Deletes extras (requires dangerous=True, except in dry-run mode).
+    Creates a snapshot before making changes (unless dry_run or snapshot=False).
+    Use `seed revert` to undo changes.
     """
     if not dangerous and not dry_run:
         raise RuntimeError("sync requires dangerous=True to delete extras (use dry_run=True to preview without --dangerous)")
 
     base = base.resolve()
-    
+
     from .parsers import parse_spec
     _, nodes = parse_spec(spec_path, vars=vars, base=base)
 
@@ -62,6 +65,12 @@ def sync(
         targets=targets,
         target_mode=target_mode,
     )
+
+    # Create snapshot before making changes
+    snapshot_id = None
+    if snapshot and not dry_run and plan.steps:
+        from .snapshot import create_snapshot
+        snapshot_id = create_snapshot(base, plan, "sync", spec_path)
 
     heartbeat = None
     lock_id = None
@@ -92,5 +101,8 @@ def sync(
             heartbeat.stop()
         if backend and lock_id:
             backend.release_lock(lock_id)
+
+    if snapshot_id:
+        result["snapshot_id"] = snapshot_id
 
     return result

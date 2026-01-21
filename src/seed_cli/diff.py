@@ -89,7 +89,35 @@ def _spec_index(nodes: List[Node], ignore: List[str]) -> Dict[str, str]:
     return idx
 
 
-def diff(spec_nodes: List[Node], base: Path, ignore: Optional[List[str]] = None) -> DiffResult:
+def _is_sublevel_of_spec(rel: str, sidx: Dict[str, str]) -> bool:
+    """Check if a path is a sublevel (child) of a directory defined in the spec.
+
+    If spec defines 'src/' as a directory, then 'src/foo.py' is a sublevel
+    and should not be reported as extra.
+    """
+    parts = rel.split("/")
+    # Check each parent level
+    for i in range(1, len(parts)):
+        parent = "/".join(parts[:i])
+        if parent in sidx and sidx[parent] == "dir":
+            return True
+    return False
+
+
+def diff(
+    spec_nodes: List[Node],
+    base: Path,
+    ignore: Optional[List[str]] = None,
+    skip_sublevels: bool = False,
+) -> DiffResult:
+    """Diff filesystem against spec.
+
+    Args:
+        spec_nodes: Nodes from parsed spec
+        base: Base directory to compare
+        ignore: Additional ignore patterns
+        skip_sublevels: If True, don't report extras inside directories defined in spec
+    """
     ignore_patterns = (ignore or []) + DEFAULT_IGNORE
     sidx = _spec_index(spec_nodes, ignore_patterns)
     fidx = _fs_index(base, ignore_patterns)
@@ -112,6 +140,9 @@ def diff(spec_nodes: List[Node], base: Path, ignore: Optional[List[str]] = None)
     # extras
     for rel in sorted(fidx.keys()):
         if rel not in sidx:
+            # Skip if this is a sublevel of a spec directory (when flag is set)
+            if skip_sublevels and _is_sublevel_of_spec(rel, sidx):
+                continue
             extra.append(rel)
 
     # drift (only for files with recorded checksum)

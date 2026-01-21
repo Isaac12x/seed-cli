@@ -5,25 +5,45 @@ build-backend = "hatchling.build"
 
 [project]
 name = "seed-cli"
-version = "1.0.0"
+version = "1.0.2"
 description = "Terraform-inspired filesystem orchestration tool"
 requires-python = ">=3.10"
 readme = "README.md"
+keywords = ["filesystem", "orchestration", "terraform", "directory", "tree", "seed"]
 authors = [
     {name = "Isaac AR", email="isaac@fortisvincere.com"}
 ]
-license = {text = "MIT"}
+maintainers = [
+  {name = "Isaac AR", email = "isaac@fortisvincere.com"}
+]
+license = {text = "ModifiedMIT"}
 classifiers = [
+  "Development Status :: 4 - Beta",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.6",
+  "Programming Language :: Python :: 3.7",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
   "License :: OSI Approved :: MIT License",
+  "Intended Audience :: Developers",
+  "Topic :: Software Development :: Build Tools",
   "Operating System :: OS Independent",
 ]
 dependencies = [
   "pyyaml",
+  "argcomplete",
 ]
 
+[project.urls]
+Repository = "https://github.com/isaac12x/seed-cli.git"
+Issues = "https://github.com/isaac12x/seed-cli/issues"
+
+
 [project.optional-dependencies]
-image = ["pillow", "pytesseract"]
+image = ["pillow", "pytesseract", "opencv-python", "numpy", "fitz"]
 ui = ["rich"]
 dev = [
     "black==23.3.0",

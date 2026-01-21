@@ -93,13 +93,19 @@ def test_cli_export_with_input(tmp_path):
 
 
 def test_cli_lock_status(tmp_path):
-    code, out, err = run(["lock"], tmp_path)
+    code, out, err = run(["lock", "status"], tmp_path)
     assert code == 0
-    assert "No lock found" in out
+    assert "No structure lock active" in out
 
 
-def test_cli_lock_renew_no_lock(tmp_path):
-    code, out, err = run(["lock", "--renew"], tmp_path)
+def test_cli_state_lock_no_lock(tmp_path):
+    code, out, err = run(["utils", "state-lock"], tmp_path)
+    assert code == 0
+    assert "No execution lock found" in out
+
+
+def test_cli_state_lock_renew_no_lock(tmp_path):
+    code, out, err = run(["utils", "state-lock", "--renew"], tmp_path)
     # Should handle gracefully or show error
     assert code in (0, 1)
 
