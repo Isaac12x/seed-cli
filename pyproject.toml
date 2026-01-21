@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "seed-cli"
-version = "1.0.2"
+version = "1.0.3"
 description = "Terraform-inspired filesystem orchestration tool"
 requires-python = ">=3.10"
 readme = "README.md"

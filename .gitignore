@@ -8,3 +8,6 @@ CLI Directory Tree Seeder.pdf
 vscode-extension/
 
 *.tree
+err-*.txt
+
+__pycache__
