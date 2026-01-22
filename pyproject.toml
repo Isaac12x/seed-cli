@@ -5,8 +5,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "seed-cli"
-version = "1.0.3"
-description = "Terraform-inspired filesystem orchestration tool"
+version = "1.0.4"
+description = "The perfect pair for the `tree` program. Seed creates, updates and deletes file and folder structures in your codebase."
 requires-python = ">=3.10"
 readme = "README.md"
 keywords = ["filesystem", "orchestration", "terraform", "directory", "tree", "seed"]

@@ -56,6 +56,7 @@ class PlanStep:
     annotation: Optional[str] = None  # generated|manual|None
     depends_on: Optional[List[str]] = None
     note: Optional[str] = None
+    optional: bool = False  # if True, prompt user before executing
 
 
 @dataclass
@@ -219,9 +220,9 @@ def plan(
 
         if ftype is None:
             if stype == "dir":
-                steps.append(PlanStep("mkdir", rel, "missing", annotation=node.annotation, depends_on=deps or None))
+                steps.append(PlanStep("mkdir", rel, "missing", annotation=node.annotation, depends_on=deps or None, optional=node.optional))
             else:
-                steps.append(PlanStep("create", rel, "missing", annotation=node.annotation, depends_on=deps or None))
+                steps.append(PlanStep("create", rel, "missing", annotation=node.annotation, depends_on=deps or None, optional=node.optional))
             add += 1
             continue
 
@@ -233,6 +234,7 @@ def plan(
                     f"type_mismatch(fs={ftype},spec={stype})",
                     annotation=node.annotation,
                     depends_on=deps or None,
+                    optional=node.optional,
                 )
             )
             change += 1
@@ -247,7 +249,7 @@ def plan(
                     if node.annotation == "manual":
                         steps.append(PlanStep("skip", rel, "checksum_drift", annotation="manual", note="protected (@manual)"))
                     else:
-                        steps.append(PlanStep("update", rel, "checksum_drift", annotation=node.annotation))
+                        steps.append(PlanStep("update", rel, "checksum_drift", annotation=node.annotation, optional=node.optional))
                         change += 1
 
     # Ensure parent dirs exist in plan (always, not just for targets)

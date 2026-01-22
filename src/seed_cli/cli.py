@@ -135,6 +135,8 @@ def build_parser() -> argparse.ArgumentParser:
     sa.add_argument("--base", default=".", help="Base directory (default: current directory)")
     sa.add_argument("--dangerous", action="store_true", help="Allow dangerous operations")
     sa.add_argument("--dry-run", action="store_true", help="Show what would be executed without making changes")
+    sa.add_argument("--yes", "-y", action="store_true", help="Create all optional items (marked with ?) without prompting")
+    sa.add_argument("--skip-optional", action="store_true", help="Skip all optional items (marked with ?) without prompting")
 
     # sync
     ss = sub.add_parser(
@@ -146,6 +148,8 @@ def build_parser() -> argparse.ArgumentParser:
     ss.add_argument("--base", default=".", help="Base directory (default: current directory)")
     ss.add_argument("--dangerous", action="store_true", help="Required flag to enable sync (dangerous operation). Not required when using --dry-run")
     ss.add_argument("--dry-run", action="store_true", help="Show what would be executed without making changes")
+    ss.add_argument("--yes", "-y", action="store_true", help="Create all optional items (marked with ?) without prompting")
+    ss.add_argument("--skip-optional", action="store_true", help="Skip all optional items (marked with ?) without prompting")
 
     # diff
     sd = sub.add_parser(
@@ -173,6 +177,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Required flag to enable match (will create/delete files). Not required with --dry-run")
     sm.add_argument("--dry-run", action="store_true",
                     help="Preview changes without modifying filesystem")
+    sm.add_argument("--yes", "-y", action="store_true",
+                    help="Create all optional items (marked with ?) without prompting")
+    sm.add_argument("--skip-optional", action="store_true",
+                    help="Skip all optional items (marked with ?) without prompting")
 
     # create - instantiate template structures
     sc_create = sub.add_parser(
@@ -317,6 +325,41 @@ def build_parser() -> argparse.ArgumentParser:
         help="Hook name to install (e.g. pre-commit). Defaults to pre-commit if not specified.",
     )
 
+    # specs - view captured spec history
+    ssp = sub.add_parser(
+        "specs",
+        description="View and manage automatically captured spec versions",
+        help="View captured spec history",
+    )
+    specs_sub = ssp.add_subparsers(dest="specs_action", help="Specs action")
+
+    # specs list
+    specs_list = specs_sub.add_parser(
+        "list",
+        description="List all captured spec versions",
+        help="List spec versions",
+    )
+    specs_list.add_argument("--base", default=".", help="Base directory")
+
+    # specs show
+    specs_show = specs_sub.add_parser(
+        "show",
+        description="Show content of a spec version",
+        help="Show spec content",
+    )
+    specs_show.add_argument("version", nargs="?", help="Version to show (e.g., 1 or v1). Default: latest")
+    specs_show.add_argument("--base", default=".", help="Base directory")
+
+    # specs diff
+    specs_diff = specs_sub.add_parser(
+        "diff",
+        description="Compare two spec versions",
+        help="Diff spec versions",
+    )
+    specs_diff.add_argument("v1", help="First version (e.g., 1 or v1)")
+    specs_diff.add_argument("v2", help="Second version (e.g., 2 or v2)")
+    specs_diff.add_argument("--base", default=".", help="Base directory")
+
     # utils
     sut = sub.add_parser(
         "utils",
@@ -439,6 +482,8 @@ def main(argv=None) -> int:
                     base,
                     plugins=plugins,
                     dry_run=args.dry_run,
+                    include_optional=args.yes,
+                    skip_optional=args.skip_optional,
                 )
             else:
                 # For sync, --dangerous is required unless --dry-run is used
@@ -450,16 +495,22 @@ def main(argv=None) -> int:
                     base,
                     dangerous=args.dangerous,
                     dry_run=args.dry_run,
+                    include_optional=args.yes,
+                    skip_optional=args.skip_optional,
                 )
 
             run_hooks(hooks, f"post_{args.cmd}", strict=True, cwd=base)
 
-            # Extract snapshot_id before creating Summary
+            # Extract extra fields before creating Summary
             snapshot_id = result.pop("snapshot_id", None)
+            spec_version = result.pop("spec_version", None)
+            spec_path = result.pop("spec_path", None)
             summary = Summary(**result)
             print(render_summary(summary))
+            if spec_version:
+                print(f"\nSpec captured: v{spec_version} ({spec_path})")
             if snapshot_id:
-                print(f"\nSnapshot created: {snapshot_id}")
+                print(f"Snapshot created: {snapshot_id}")
                 print("Use 'seed revert' to undo changes")
             return 0
         except Exception as e:
@@ -510,13 +561,19 @@ def main(argv=None) -> int:
                     ignore=args.ignore,
                     targets=args.targets,
                     target_mode=args.target_mode,
+                    include_optional=args.yes,
+                    skip_optional=args.skip_optional,
                 )
-                # Extract snapshot_id before creating Summary
+                # Extract extra fields before creating Summary
                 snapshot_id = result.pop("snapshot_id", None)
+                spec_version = result.pop("spec_version", None)
+                spec_path = result.pop("spec_path", None)
                 summary = Summary(**result)
                 print(render_summary(summary))
+                if spec_version:
+                    print(f"\nSpec captured: v{spec_version} ({spec_path})")
                 if snapshot_id:
-                    print(f"\nSnapshot created: {snapshot_id}")
+                    print(f"Snapshot created: {snapshot_id}")
                     print("Use 'seed revert' to undo changes")
                 return 0
         except Exception as e:
@@ -663,11 +720,79 @@ def main(argv=None) -> int:
             output = to_json(nodes)
         else:
             output = to_tree_text(nodes)
-        
+
         if args.out:
             Path(args.out).write_text(output)
         else:
             print(output)
+        return 0
+
+    # ---------------- SPECS ----------------
+    if args.cmd == "specs":
+        from seed_cli.spec_history import (
+            list_spec_versions,
+            get_spec_version,
+            get_current_spec,
+            diff_spec_versions,
+        )
+
+        # Default to list if no action specified
+        action = args.specs_action or "list"
+
+        if action == "list":
+            versions = list_spec_versions(base)
+            if not versions:
+                print("No captured specs found.")
+                print("Specs are automatically captured after apply/sync/match operations.")
+                return 0
+            print("Captured spec versions:\n")
+            for version, path, timestamp in versions:
+                print(f"  v{version}  {timestamp}")
+            print(f"\nTotal: {len(versions)} versions")
+            print(f"Location: {base / '.seed/specs/'}")
+            return 0
+
+        if action == "show":
+            version_arg = getattr(args, "version", None)
+            if version_arg:
+                # Parse version number (accept "1", "v1", etc.)
+                v = int(version_arg.lstrip("v"))
+                content = get_spec_version(base, v)
+                if content is None:
+                    print(f"Version v{v} not found.")
+                    return 1
+                print(content)
+            else:
+                # Show latest
+                result = get_current_spec(base)
+                if result is None:
+                    print("No captured specs found.")
+                    return 1
+                version, content = result
+                print(f"# Current spec: v{version}\n")
+                print(content)
+            return 0
+
+        if action == "diff":
+            v1 = int(args.v1.lstrip("v"))
+            v2 = int(args.v2.lstrip("v"))
+            try:
+                result = diff_spec_versions(base, v1, v2)
+                if result["added"]:
+                    print(f"Added in v{v2}:")
+                    for p in result["added"]:
+                        print(f"  + {p}")
+                if result["removed"]:
+                    print(f"\nRemoved in v{v2}:")
+                    for p in result["removed"]:
+                        print(f"  - {p}")
+                if not result["added"] and not result["removed"]:
+                    print(f"No differences between v{v1} and v{v2}")
+                return 0
+            except ValueError as e:
+                print(f"Error: {e}")
+                return 1
+
         return 0
 
     # ---------------- EXPORT ----------------

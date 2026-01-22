@@ -25,7 +25,8 @@ def format_step(step) -> str:
     path = step.path
     op = step.op.upper()
     reason = f" ({step.reason})" if step.reason else ""
-    return f"{op:8} {path}{reason}"
+    optional = " ?" if getattr(step, "optional", False) else ""
+    return f"{op:8} {path}{optional}{reason}"
 
 
 def render_list(title: str, items: List[str]) -> str:

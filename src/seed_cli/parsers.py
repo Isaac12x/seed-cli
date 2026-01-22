@@ -34,11 +34,13 @@ class Node:
     is_dir: bool
     comment: Optional[str] = None
     annotation: Optional[str] = None  # generated | manual | None
+    optional: bool = False  # marked with ? - prompt user before creating
 
 
 # _COMMENT_RE matches comments in parentheses (e.g., (note here)), and ignores # style comments in a line.
 _COMMENT_RE = re.compile(r"\(([^)]+)\)|//(.*)$|#(.*)$")
 _ANNOT_RE = re.compile(r"@([a-zA-Z_][\w-]*)")
+_OPTIONAL_RE = re.compile(r"\?(?:\s|$)")
 TREE_LINE = re.compile(r"""
 ^(?P<prefix>[\s│|]*)(?P<branch>├──|└──)?\s*(?P<name>.+?)\s*$
 """, re.VERBOSE)
@@ -52,9 +54,19 @@ def _tree_depth(prefix: str) -> int:
     prefix = prefix.replace("\t", "    ")
     return len(prefix) // 4
 
-def _extract_comment_and_annotation(text: str) -> tuple[str, Optional[str], Optional[str]]:
+def _extract_comment_and_annotation(text: str) -> tuple[str, Optional[str], Optional[str], bool]:
+    """Extract comment, annotation, and optional marker from text.
+
+    Returns: (cleaned_text, comment, annotation, is_optional)
+    """
     comment = None
     annotation = None
+    is_optional = False
+
+    # Check for optional marker (?)
+    if _OPTIONAL_RE.search(text):
+        is_optional = True
+        text = _OPTIONAL_RE.sub("", text)
 
     ann = _ANNOT_RE.search(text)
     if ann:
@@ -67,13 +79,13 @@ def _extract_comment_and_annotation(text: str) -> tuple[str, Optional[str], Opti
         comment = (com.group(1) or com.group(2) or com.group(3) or "").strip()
         text = _COMMENT_RE.sub("", text)
 
-    return text.strip(), comment, annotation
+    return text.strip(), comment, annotation, is_optional
 
-def _make_node(*, rel: str, is_dir: bool, comment: str | None = None, annotation: str | None = None):
+def _make_node(*, rel: str, is_dir: bool, comment: str | None = None, annotation: str | None = None, optional: bool = False):
     """
     Construct Node with proper Path for relpath.
     """
-    return Node(relpath=Path(rel), is_dir=is_dir, comment=comment, annotation=annotation)
+    return Node(relpath=Path(rel), is_dir=is_dir, comment=comment, annotation=annotation, optional=optional)
 
 def read_input(path_or_dash: str) -> str:
     """Read text input from file or stdin.
@@ -184,8 +196,8 @@ def parse_tree_text(text: str, *args, **kwargs) -> List["Node"]:
         prefix = m.group("prefix") or ""
         name = (m.group("name") or "").strip()
 
-        # Extract comment and annotation before processing name
-        name, comment, annotation = _extract_comment_and_annotation(name)
+        # Extract comment, annotation, and optional marker before processing name
+        name, comment, annotation, is_optional = _extract_comment_and_annotation(name)
 
         # Handle "..." marker for allowing extras in parent directory
         if name == "..." or name == "…":
@@ -227,7 +239,8 @@ def parse_tree_text(text: str, *args, **kwargs) -> List["Node"]:
                 rel=path,
                 is_dir=True,
                 comment=comment,
-                annotation=f"template:{var_name}"
+                annotation=f"template:{var_name}",
+                optional=is_optional,
             ))
             # Push to stack so children can reference this template path
             while len(stack) <= depth + 1:
@@ -237,7 +250,7 @@ def parse_tree_text(text: str, *args, **kwargs) -> List["Node"]:
 
         path = (parent / name).as_posix()
 
-        nodes.append(_make_node(rel=path, is_dir=is_dir, comment=comment, annotation=annotation))
+        nodes.append(_make_node(rel=path, is_dir=is_dir, comment=comment, annotation=annotation, optional=is_optional))
 
         if is_dir:
             # push this dir as current at next depth
@@ -259,7 +272,8 @@ def parse_structured(doc: dict) -> Tuple[Optional[Path], List[Node]]:
         is_dir = entry.get("type") == "dir" or entry["path"].endswith("/")
         comment = entry.get("comment")
         annotation = entry.get("annotation")
-        nodes.append(Node(Path(path), is_dir=is_dir, comment=comment, annotation=annotation))
+        optional = entry.get("optional", False)
+        nodes.append(Node(Path(path), is_dir=is_dir, comment=comment, annotation=annotation, optional=optional))
 
     return root, nodes
 

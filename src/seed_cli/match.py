@@ -272,6 +272,9 @@ def match(
     lock_ttl: int = 300,
     lock_timeout: int = 30,
     lock_renew: int = 10,
+    interactive: bool = True,
+    skip_optional: bool = False,
+    include_optional: bool = False,
 ) -> dict:
     """Match filesystem to spec.
 
@@ -366,12 +369,23 @@ def match(
             dry_run=dry_run,
             gitkeep=gitkeep,
             template_dir=template_dir,
+            interactive=interactive,
+            skip_optional=skip_optional,
+            include_optional=include_optional,
         )
     finally:
         if heartbeat:
             heartbeat.stop()
         if backend and lock_id:
             backend.release_lock(lock_id)
+
+    # Capture versioned spec after successful execution
+    if not dry_run:
+        from .spec_history import capture_spec
+        spec_result = capture_spec(base, ignore=ignore)
+        if spec_result:
+            result["spec_version"] = spec_result[0]
+            result["spec_path"] = str(spec_result[1])
 
     if snapshot_id:
         result["snapshot_id"] = snapshot_id
