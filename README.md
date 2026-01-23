@@ -1,5 +1,8 @@
 # seed-cli
 
+![seed-cli](https://github.com/user-attachments/assets/5661d43b-816f-40d3-b47e-23f85a0eae34)
+
+
 **seed** is a Terraform-inspired, spec-driven filesystem orchestration tool.
 
 It allows you to declaratively describe directory structures, generate plans,
