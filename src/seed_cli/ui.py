@@ -43,6 +43,7 @@ class Summary:
     updated: int = 0
     deleted: int = 0
     skipped: int = 0
+    backed_up: int = 0
 
 
 def render_summary(summary: Summary) -> str:
@@ -55,17 +56,22 @@ def render_summary(summary: Summary) -> str:
         table.add_row("Updated", str(summary.updated))
         table.add_row("Deleted", str(summary.deleted))
         table.add_row("Skipped", str(summary.skipped))
+        if summary.backed_up > 0:
+            table.add_row("Backed Up", str(summary.backed_up))
         buf = StringIO()
         console = Console(file=buf, force_terminal=True)
         console.print(table)
         return buf.getvalue()
     else:
-        return (
+        base = (
             f"Created: {summary.created}\n"
             f"Updated: {summary.updated}\n"
             f"Deleted: {summary.deleted}\n"
             f"Skipped: {summary.skipped}"
         )
+        if summary.backed_up > 0:
+            base += f"\nBacked Up: {summary.backed_up}"
+        return base
 
 
 def render_list(title: str, items: Iterable[str]) -> str:

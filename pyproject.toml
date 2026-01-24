@@ -49,6 +49,7 @@ dev = [
     "black==23.3.0",
     "pytest",
     "pytest-asyncio",
+    "pytest-cov",
     "pre-commit",
     "hypothesis>=6.103.1",
     "hypothesis[numpy]>=6.103.1",
@@ -73,3 +74,32 @@ target-version = ['py38', 'py39', 'py310', 'py311', 'py312']
 
 [tool.mypy]
 ignore_errors = false
+
+
+[tool.pytest.ini_options]
+addopts = "--cov=src/seed_cli --cov-report=term-missing --cov-branch"
+testpaths = ["tests"]
+
+
+[tool.coverage.run]
+branch = true
+source = ["src/seed_cli"]
+omit = [
+    "*/tests/*",
+    "*/__pycache__/*",
+    "*/image.py",  # OCR functionality requires external dependencies
+    "*/cli.py",  # CLI entry points - tested via integration tests
+    "*/utils/verify-tree.py",  # Standalone script
+    "*/graphviz.py",  # DOT format parsing - optional feature
+    "*/state/http.py",  # HTTP backend - requires integration tests
+]
+
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]

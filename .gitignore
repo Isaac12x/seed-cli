@@ -7,6 +7,8 @@ CLI Directory Tree Seeder.pdf
 .DS_Store
 vscode-extension/
 
+.claude
+
 *.tree
 err-*.txt
 

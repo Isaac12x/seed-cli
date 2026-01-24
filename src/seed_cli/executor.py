@@ -12,6 +12,7 @@ Responsibilities:
 - Record checksums after successful execution
 - Invoke plugin hooks (if provided)
 - Prompt for optional items (marked with ?)
+- Backup existing files with content before overwriting
 
 This module is intentionally imperative and side-effectful.
 """
@@ -20,9 +21,59 @@ from pathlib import Path
 from typing import Optional, Dict, List, Set
 import shutil
 import sys
+import time
 
 from .planning import PlanResult, PlanStep
 from .checksums import sha256, load_checksums, save_checksums
+
+
+BACKUPS_DIR = ".seed/backups"
+
+
+def _get_backup_dir(base: Path) -> Path:
+    """Get or create a timestamped backup directory."""
+    timestamp = int(time.time() * 1000)
+    backup_dir = base / BACKUPS_DIR / f"backup_{timestamp}"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    return backup_dir
+
+
+def _backup_file_if_has_content(target: Path, base: Path, backup_dir: Optional[Path] = None) -> Optional[Path]:
+    """Backup a file if it exists and has content.
+
+    Args:
+        target: The file to potentially backup
+        base: Base directory for relative path calculation
+        backup_dir: Optional existing backup directory to use
+
+    Returns:
+        Path to backed up file, or None if no backup was needed
+    """
+    if not target.exists() or not target.is_file():
+        return None
+
+    # Check if file has content (size > 0)
+    if target.stat().st_size == 0:
+        return None
+
+    # Create backup directory if not provided
+    if backup_dir is None:
+        backup_dir = _get_backup_dir(base)
+
+    # Calculate relative path and backup destination
+    try:
+        rel_path = target.relative_to(base)
+    except ValueError:
+        # Target is not under base, use absolute path structure
+        rel_path = Path(target.name)
+
+    backup_path = backup_dir / rel_path
+    backup_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Copy the file to backup location
+    shutil.copy2(target, backup_path)
+
+    return backup_path
 
 
 def _ensure_parent(path: Path) -> None:
@@ -77,14 +128,17 @@ def execute_plan(
         skip_optional: If True, skip all optional items without prompting.
         include_optional: If True, create all optional items without prompting (--yes flag).
 
-    Returns counters: {created, updated, deleted, skipped}
+    Returns counters: {created, updated, deleted, skipped, backed_up}
     """
-    counters = {"created": 0, "updated": 0, "deleted": 0, "skipped": 0}
+    counters = {"created": 0, "updated": 0, "deleted": 0, "skipped": 0, "backed_up": 0}
 
     plugins = plugins or []
 
     # Track skipped optional paths so we can skip their children too
     skipped_optional_paths: Set[str] = set()
+
+    # Create a single backup directory for this execution (reused for all backups)
+    backup_dir: Optional[Path] = None
 
     if template_dir and not dry_run:
         if template_dir.exists():
@@ -95,6 +149,12 @@ def execute_plan(
                     target.mkdir(parents=True, exist_ok=True)
                 else:
                     target.parent.mkdir(parents=True, exist_ok=True)
+                    # Backup existing file with content before overwriting
+                    if target.exists() and target.is_file() and target.stat().st_size > 0:
+                        if backup_dir is None:
+                            backup_dir = _get_backup_dir(base)
+                        _backup_file_if_has_content(target, base, backup_dir)
+                        counters["backed_up"] += 1
                     if force or not target.exists():
                         shutil.copy2(item, target)
 
@@ -149,6 +209,12 @@ def execute_plan(
         if step.op in ("create", "update"):
             if not dry_run:
                 _ensure_parent(target)
+                # Backup existing file with content before any operation that might affect it
+                if target.exists() and target.is_file() and target.stat().st_size > 0:
+                    if backup_dir is None:
+                        backup_dir = _get_backup_dir(base)
+                    _backup_file_if_has_content(target, base, backup_dir)
+                    counters["backed_up"] += 1
                 if step.op == "create":
                     _touch(target)
                 else:
