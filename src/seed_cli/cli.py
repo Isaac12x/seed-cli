@@ -360,6 +360,82 @@ def build_parser() -> argparse.ArgumentParser:
     specs_diff.add_argument("v2", help="Second version (e.g., 2 or v2)")
     specs_diff.add_argument("--base", default=".", help="Base directory")
 
+    # templates - manage reusable specs from GitHub
+    stpl = sub.add_parser(
+        "templates",
+        description="Manage reusable spec templates from GitHub",
+        help="Manage spec templates",
+    )
+    templates_sub = stpl.add_subparsers(dest="templates_action", help="Templates action")
+
+    # templates list
+    tpl_list = templates_sub.add_parser(
+        "list",
+        description="List all stored templates",
+        help="List templates",
+    )
+
+    # templates add <github_url>
+    tpl_add = templates_sub.add_parser(
+        "add",
+        description="Add a template from GitHub URL or local file",
+        help="Add a template",
+    )
+    tpl_add.add_argument("source", help="GitHub URL or local file path")
+    tpl_add.add_argument("--name", "-n", help="Name for the template (default: derived from URL/filename)")
+    tpl_add.add_argument("--version", "-v", help="Version name (default: auto-increment)")
+
+    # templates remove <name>
+    tpl_remove = templates_sub.add_parser(
+        "remove",
+        description="Remove a template",
+        help="Remove a template",
+    )
+    tpl_remove.add_argument("name", help="Template name to remove")
+
+    # templates use <name>
+    tpl_use = templates_sub.add_parser(
+        "use",
+        description="Apply a template to the filesystem",
+        help="Use a template",
+    )
+    tpl_use.add_argument("name", help="Template name to use")
+    tpl_use.add_argument("--version", "-v", help="Version to use (default: current)")
+    tpl_use.add_argument("--base", default=".", help="Base directory (default: current directory)")
+    tpl_use.add_argument("--vars", action="append", help="Template variables (key=value)")
+    tpl_use.add_argument("--yes", "-y", action="store_true", help="Apply without prompting")
+    tpl_use.add_argument("--dry-run", action="store_true", help="Show plan without applying")
+
+    # templates show <name>
+    tpl_show = templates_sub.add_parser(
+        "show",
+        description="Show template content",
+        help="Show template content",
+    )
+    tpl_show.add_argument("name", help="Template name")
+    tpl_show.add_argument("--version", "-v", help="Version to show (default: current)")
+
+    # templates lock <name>
+    tpl_lock = templates_sub.add_parser(
+        "lock",
+        description="Lock or unlock a template",
+        help="Lock/unlock template",
+    )
+    tpl_lock.add_argument("name", help="Template name")
+    tpl_lock.add_argument("--version", "-v", help="Version to set as current before locking")
+    tpl_lock.add_argument("--unlock", action="store_true", help="Unlock instead of lock")
+
+    # templates versions <name>
+    tpl_versions = templates_sub.add_parser(
+        "versions",
+        description="Manage template versions",
+        help="Manage versions",
+    )
+    tpl_versions.add_argument("name", help="Template name")
+    tpl_versions.add_argument("--add", metavar="PATH", help="Add a new version from file")
+    tpl_versions.add_argument("--name", dest="version_name", metavar="VERSION", help="Name for the new version (with --add)")
+    tpl_versions.add_argument("--set-current", metavar="VERSION", help="Set version as current")
+
     # utils
     sut = sub.add_parser(
         "utils",
@@ -910,6 +986,273 @@ def main(argv=None) -> int:
             return 0
 
         print(f"Unknown lock action: {action}")
+        return 1
+
+    # ---------------- TEMPLATES ----------------
+    if args.cmd == "templates":
+        from seed_cli.template_registry import (
+            list_templates,
+            get_template,
+            get_template_spec_path,
+            add_template,
+            add_local_template,
+            remove_template,
+            list_versions as list_template_versions,
+            add_version,
+            set_current_version,
+            lock_template,
+            unlock_template,
+            parse_github_url,
+        )
+        import time as time_module
+        from datetime import datetime
+
+        action = getattr(args, "templates_action", None)
+
+        # Default: list if no action specified
+        if not action or action == "list":
+            templates = list_templates()
+            if not templates:
+                print("No templates stored.")
+                print("\nUse 'seed templates add <github_url>' to add a template.")
+                return 0
+
+            print("Stored templates:\n")
+            for tmpl in templates:
+                locked_str = " [LOCKED]" if tmpl.locked else ""
+                print(f"  {tmpl.name}{locked_str}")
+                print(f"    Version: {tmpl.current_version} ({len(tmpl.versions)} total)")
+                print(f"    Source: {tmpl.source}")
+                created = datetime.fromtimestamp(tmpl.created_at).strftime("%Y-%m-%d %H:%M")
+                print(f"    Created: {created}")
+                print()
+            return 0
+
+        if action == "add":
+            source = args.source
+            name = getattr(args, "name", None)
+            version = getattr(args, "version", None)
+
+            try:
+                # Check if it's a GitHub URL or local file
+                if parse_github_url(source):
+                    meta = add_template(source, name=name, version=version)
+                    print(f"Added template: {meta.name}")
+                    print(f"  Version: {meta.current_version}")
+                    print(f"  Source: {meta.source}")
+                else:
+                    # Local file
+                    if not name:
+                        name = Path(source).stem
+                    meta = add_local_template(source, name, version=version)
+                    print(f"Added template: {meta.name}")
+                    print(f"  Version: {meta.current_version}")
+                    print(f"  Source: {meta.source}")
+                return 0
+            except ValueError as e:
+                print(f"Error: {e}")
+                return 1
+            except FileNotFoundError as e:
+                print(f"Error: {e}")
+                return 1
+            except RuntimeError as e:
+                print(f"Error: {e}")
+                return 1
+            except Exception as e:
+                log.error(f"Error adding template: {e}")
+                if args.debug:
+                    import traceback
+                    traceback.print_exc()
+                return 1
+
+        if action == "remove":
+            name = args.name
+            try:
+                if remove_template(name):
+                    print(f"Removed template: {name}")
+                else:
+                    print(f"Template not found: {name}")
+                    return 1
+                return 0
+            except ValueError as e:
+                print(f"Error: {e}")
+                return 1
+
+        if action == "use":
+            name = args.name
+            version = getattr(args, "version", None)
+            use_base = Path(getattr(args, "base", ".")).resolve()
+            use_vars = parse_vars(getattr(args, "vars", []))
+            yes = getattr(args, "yes", False)
+            dry_run = getattr(args, "dry_run", False)
+
+            # Get template spec path
+            spec_path = get_template_spec_path(name, version)
+            if not spec_path:
+                print(f"Template not found: {name}")
+                if version:
+                    print(f"Version: {version}")
+                return 1
+
+            meta = get_template(name)
+            used_version = version or meta.current_version
+            print(f"Using template: {name} ({used_version})")
+            print(f"Base directory: {use_base}")
+            print()
+
+            try:
+                # Parse spec and build plan
+                _, nodes = parse_spec_file(str(spec_path), use_vars, use_base, plugins, context)
+
+                for p in plugins:
+                    p.after_parse(nodes, context)
+
+                for p in plugins:
+                    p.before_plan(nodes, context)
+
+                plan = build_plan(
+                    nodes,
+                    use_base,
+                    ignore=args.ignore,
+                    allow_delete=False,
+                    targets=args.targets,
+                    target_mode=args.target_mode,
+                )
+
+                for p in plugins:
+                    p.after_plan(plan, context)
+
+                # Show plan
+                print(plan.to_text())
+
+                if dry_run:
+                    print("\nDRY RUN - No changes applied")
+                    return 0
+
+                # Prompt for confirmation unless --yes
+                if not yes:
+                    response = input("\nApply? [y/N]: ").strip().lower()
+                    if response not in ("y", "yes"):
+                        print("Aborted.")
+                        return 0
+
+                # Apply the template
+                result = apply(
+                    str(spec_path),
+                    use_base,
+                    plugins=plugins,
+                    dry_run=False,
+                    vars=use_vars,
+                    ignore=args.ignore,
+                    targets=args.targets,
+                    target_mode=args.target_mode,
+                )
+
+                # Extract extra fields before creating Summary
+                snapshot_id = result.pop("snapshot_id", None)
+                spec_version = result.pop("spec_version", None)
+                result_spec_path = result.pop("spec_path", None)
+                summary = Summary(**result)
+                print(render_summary(summary))
+                if spec_version:
+                    print(f"\nSpec captured: v{spec_version} ({result_spec_path})")
+                if snapshot_id:
+                    print(f"Snapshot created: {snapshot_id}")
+                    print("Use 'seed revert' to undo changes")
+                return 0
+            except Exception as e:
+                log.error(f"Error using template: {e}")
+                if args.debug:
+                    import traceback
+                    traceback.print_exc()
+                return 1
+
+        if action == "show":
+            name = args.name
+            version = getattr(args, "version", None)
+
+            spec_path = get_template_spec_path(name, version)
+            if not spec_path:
+                print(f"Template not found: {name}")
+                if version:
+                    print(f"Version: {version}")
+                return 1
+
+            meta = get_template(name)
+            used_version = version or meta.current_version
+            print(f"# Template: {name} ({used_version})")
+            print(f"# Source: {meta.source}")
+            locked_str = " [LOCKED]" if meta.locked else ""
+            print(f"# Status:{locked_str}")
+            print()
+            print(spec_path.read_text())
+            return 0
+
+        if action == "lock":
+            name = args.name
+            version = getattr(args, "version", None)
+            do_unlock = getattr(args, "unlock", False)
+
+            try:
+                if do_unlock:
+                    unlock_template(name)
+                    print(f"Unlocked template: {name}")
+                else:
+                    lock_template(name, version)
+                    msg = f"Locked template: {name}"
+                    if version:
+                        msg += f" at version {version}"
+                    print(msg)
+                return 0
+            except ValueError as e:
+                print(f"Error: {e}")
+                return 1
+
+        if action == "versions":
+            name = args.name
+            add_path = getattr(args, "add", None)
+            version_name = getattr(args, "version_name", None)
+            set_current = getattr(args, "set_current", None)
+
+            meta = get_template(name)
+            if not meta:
+                print(f"Template not found: {name}")
+                return 1
+
+            # Add a new version
+            if add_path:
+                try:
+                    new_version = add_version(name, add_path, version_name)
+                    print(f"Added version: {new_version}")
+                    return 0
+                except (ValueError, FileNotFoundError) as e:
+                    print(f"Error: {e}")
+                    return 1
+
+            # Set current version
+            if set_current:
+                try:
+                    set_current_version(name, set_current)
+                    print(f"Set current version: {set_current}")
+                    return 0
+                except ValueError as e:
+                    print(f"Error: {e}")
+                    return 1
+
+            # List versions
+            versions = list_template_versions(name)
+            if not versions:
+                print(f"No versions found for template: {name}")
+                return 1
+
+            print(f"Versions for template '{name}':\n")
+            for v, path in versions:
+                current = " (current)" if v == meta.current_version else ""
+                print(f"  {v}{current}")
+            print(f"\nTotal: {len(versions)} versions")
+            return 0
+
+        print(f"Unknown templates action: {action}")
         return 1
 
     # ---------------- HOOKS (git) ----------------
