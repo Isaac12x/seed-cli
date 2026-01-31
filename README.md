@@ -32,6 +32,7 @@ Think **Terraform for directory trees**.
 - Partial plans (`--target scripts/`)
 - Spec inheritance (`@include`)
 - Variables (`{{project_name}}`)
+- Template content from GitHub (`source.json`)
 - Plugins
 - Checksums & drift detection
 - CI & pre-commit hooks
@@ -156,6 +157,29 @@ Create new instances:
 ```bash
 seed create spec.tree version_id=v3
 ```
+
+---
+
+## Template Content Sources
+
+Templates can point to real file contents via `source.json` or the `--content-url` flag. When a content source is set, `seed` fetches actual files (from a local directory or a GitHub tree URL) and stores them alongside the spec.
+
+```bash
+# Add a template with content from GitHub
+seed templates add ./fastapi --name fastapi \
+  --content-url https://github.com/tiangolo/full-stack-fastapi-template/tree/master/backend/app
+
+# Re-fetch content from the stored source
+seed templates update fastapi
+
+# Update all templates with content sources
+seed templates update --all
+
+# Change where content is fetched from
+seed templates update fastapi --content-url https://github.com/other/repo/tree/main/src
+```
+
+Templates that include a `source.json` file (containing `{"content_url": "..."}`) will automatically fetch content when installed. The built-in `fastapi`, `python-package`, and `node-typescript` templates use this feature.
 
 ---
 

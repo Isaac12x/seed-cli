@@ -112,6 +112,7 @@ def execute_plan(
     interactive: bool = True,
     skip_optional: bool = False,
     include_optional: bool = False,
+    vars: Optional[Dict[str, str]] = None,
 ) -> Dict[str, int]:
     """Execute a plan against the filesystem.
 
@@ -157,6 +158,17 @@ def execute_plan(
                         counters["backed_up"] += 1
                     if force or not target.exists():
                         shutil.copy2(item, target)
+                        # Apply variable substitution to text files
+                        if vars and target.exists():
+                            try:
+                                content = target.read_bytes()
+                                text = content.decode("utf-8")
+                                from .templating import apply_vars
+                                replaced = apply_vars(text, vars, mode="loose")
+                                if replaced != text:
+                                    target.write_text(replaced)
+                            except (UnicodeDecodeError, ValueError):
+                                pass  # Skip binary files
 
     checks = load_checksums(base)
 

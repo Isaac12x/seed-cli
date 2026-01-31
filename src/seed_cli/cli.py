@@ -384,6 +384,8 @@ def build_parser() -> argparse.ArgumentParser:
     tpl_add.add_argument("source", help="GitHub URL or local file path")
     tpl_add.add_argument("--name", "-n", help="Name for the template (default: derived from URL/filename)")
     tpl_add.add_argument("--version", "-v", help="Version name (default: auto-increment)")
+    tpl_add.add_argument("--content-url", dest="content_url",
+                         help="URL or local path to fetch file contents from (saved in source.json)")
 
     # templates remove <name>
     tpl_remove = templates_sub.add_parser(
@@ -424,6 +426,18 @@ def build_parser() -> argparse.ArgumentParser:
     tpl_lock.add_argument("name", help="Template name")
     tpl_lock.add_argument("--version", "-v", help="Version to set as current before locking")
     tpl_lock.add_argument("--unlock", action="store_true", help="Unlock instead of lock")
+
+    # templates update <name>
+    tpl_update = templates_sub.add_parser(
+        "update",
+        description="Re-fetch content from a template's source URL",
+        help="Update template content from source",
+    )
+    tpl_update.add_argument("name", nargs="?", help="Template name to update")
+    tpl_update.add_argument("--all", action="store_true", dest="update_all",
+                            help="Update all templates that have a content_url")
+    tpl_update.add_argument("--content-url", dest="content_url",
+                            help="Set a new content URL (local path or GitHub tree URL)")
 
     # templates versions <name>
     tpl_versions = templates_sub.add_parser(
@@ -994,9 +1008,11 @@ def main(argv=None) -> int:
             list_templates,
             get_template,
             get_template_spec_path,
+            get_template_content_dir,
             add_template,
             add_local_template,
             remove_template,
+            update_template,
             list_versions as list_template_versions,
             add_version,
             set_current_version,
@@ -1032,22 +1048,30 @@ def main(argv=None) -> int:
             source = args.source
             name = getattr(args, "name", None)
             version = getattr(args, "version", None)
+            add_content_url = getattr(args, "content_url", None)
 
             try:
-                # Check if it's a GitHub URL or local file
+                # Check if it's a GitHub URL or local file/directory
                 if parse_github_url(source):
-                    meta = add_template(source, name=name, version=version)
+                    meta = add_template(source, name=name, version=version, content_url=add_content_url)
                     print(f"Added template: {meta.name}")
                     print(f"  Version: {meta.current_version}")
                     print(f"  Source: {meta.source}")
                 else:
-                    # Local file
+                    # Local file or directory
+                    source_path = Path(source)
                     if not name:
-                        name = Path(source).stem
-                    meta = add_local_template(source, name, version=version)
+                        name = source_path.stem if source_path.is_file() else source_path.name
+                    meta = add_local_template(source, name, version=version, content_url=add_content_url)
                     print(f"Added template: {meta.name}")
                     print(f"  Version: {meta.current_version}")
                     print(f"  Source: {meta.source}")
+                    # Report if content files were included
+                    from seed_cli.template_registry import get_template_content_dir
+                    if get_template_content_dir(meta.name, meta.current_version):
+                        print(f"  Content: files/ directory included")
+                if meta.content_url:
+                    print(f"  Content URL: {meta.content_url}")
                 return 0
             except ValueError as e:
                 print(f"Error: {e}")
@@ -1075,6 +1099,47 @@ def main(argv=None) -> int:
                     return 1
                 return 0
             except ValueError as e:
+                print(f"Error: {e}")
+                return 1
+
+        if action == "update":
+            update_all = getattr(args, "update_all", False)
+            tpl_name = getattr(args, "name", None)
+            update_content_url = getattr(args, "content_url", None)
+
+            if not update_all and not tpl_name:
+                print("Error: provide a template name or use --all")
+                return 1
+
+            if update_all:
+                if update_content_url:
+                    print("Error: --content-url cannot be used with --all")
+                    return 1
+                templates = list_templates()
+                updated = 0
+                for tmpl in templates:
+                    if tmpl.content_url:
+                        try:
+                            update_template(tmpl.name)
+                            print(f"Updated: {tmpl.name}")
+                            updated += 1
+                        except Exception as e:
+                            print(f"Failed to update {tmpl.name}: {e}")
+                if updated == 0:
+                    print("No templates with content_url found to update.")
+                else:
+                    print(f"\nUpdated {updated} template(s)")
+                return 0
+
+            try:
+                meta = update_template(tpl_name, content_url=update_content_url)
+                print(f"Updated template: {meta.name}")
+                print(f"  Content URL: {meta.content_url}")
+                return 0
+            except ValueError as e:
+                print(f"Error: {e}")
+                return 1
+            except RuntimeError as e:
                 print(f"Error: {e}")
                 return 1
 
@@ -1136,6 +1201,9 @@ def main(argv=None) -> int:
                         print("Aborted.")
                         return 0
 
+                # Resolve content directory for template files
+                content_dir = get_template_content_dir(name, version)
+
                 # Apply the template
                 result = apply(
                     str(spec_path),
@@ -1143,6 +1211,7 @@ def main(argv=None) -> int:
                     plugins=plugins,
                     dry_run=False,
                     vars=use_vars,
+                    template_dir=content_dir,
                     ignore=args.ignore,
                     targets=args.targets,
                     target_mode=args.target_mode,

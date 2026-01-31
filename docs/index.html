@@ -708,10 +708,11 @@ project/
 
             <div class="command-card">
                 <h4>seed templates add &lt;source&gt;</h4>
-                <p>Add a template from GitHub URL or local file path.</p>
+                <p>Add a template from GitHub URL or local file path. Supports fetching real file contents from a content source.</p>
                 <div class="options">
                     <code>--name, -n NAME</code> Name for the template (default: derived from URL/filename)<br>
-                    <code>--version, -v VERSION</code> Version name (default: auto-increment)
+                    <code>--version, -v VERSION</code> Version name (default: auto-increment)<br>
+                    <code>--content-url URL</code> Fetch file contents from a local path or GitHub tree URL
                 </div>
             </div>
             <div class="code-block">
@@ -726,7 +727,14 @@ seed templates add ./my-templates/python-project.tree
 seed templates add ./template.tree --name my-template
 
 # With specific version
-seed templates add ./template.tree --name my-template --version v1.0</code></pre>
+seed templates add ./template.tree --name my-template --version v1.0
+
+# With content from GitHub
+seed templates add ./fastapi --name fastapi \
+  --content-url https://github.com/tiangolo/full-stack-fastapi-template/tree/master/backend/app
+
+# With content from a local directory
+seed templates add ./my-template --name myapp --content-url /path/to/local/files</code></pre>
             </div>
 
             <div class="command-card">
@@ -825,12 +833,59 @@ seed templates lock python-project --unlock</code></pre>
             </div>
 
             <div class="command-card">
+                <h4>seed templates update &lt;name&gt;</h4>
+                <p>Re-fetch content from a template's content source. Use <code>--all</code> to update every template that has a content URL. Use <code>--content-url</code> to change where content is fetched from.</p>
+                <div class="options">
+                    <code>--all</code> Update all templates with content sources<br>
+                    <code>--content-url URL</code> Set a new content source (local path or GitHub tree URL)
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash"># Re-fetch content for a template
+seed templates update fastapi
+
+# Update all templates
+seed templates update --all
+
+# Change content source
+seed templates update myapp --content-url https://github.com/owner/repo/tree/develop/src
+
+# Switch from GitHub to local directory
+seed templates update myapp --content-url /path/to/local/files</code></pre>
+            </div>
+
+            <div class="command-card">
                 <h4>seed templates remove &lt;name&gt;</h4>
                 <p>Remove a template from the registry.</p>
             </div>
             <div class="code-block">
                 <button class="copy-btn">Copy</button>
                 <pre><code class="language-bash">seed templates remove python-project</code></pre>
+            </div>
+
+            <hr>
+
+            <h3>Content Sources (source.json)</h3>
+            <p>Templates can include a <code>source.json</code> file that tells seed where to fetch real file contents from. When a template with a <code>source.json</code> is installed, seed automatically downloads the files.</p>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-json">{
+  "content_url": "https://github.com/owner/repo/tree/main/src"
+}</code></pre>
+            </div>
+            <p>Content sources support both local directory paths and GitHub tree URLs. The built-in <code>fastapi</code>, <code>python-package</code>, and <code>node-typescript</code> templates ship with <code>source.json</code> and auto-fetch content on first use.</p>
+
+            <h3>Changing a Template's Content Source</h3>
+            <p>Use <code>seed templates update</code> with <code>--content-url</code> to point a template at a different source. This updates both <code>meta.json</code> and <code>source.json</code> in <code>~/.seed/templates/&lt;name&gt;/</code>.</p>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash"># Point to a different repo/branch
+seed templates update myapp \
+  --content-url https://github.com/owner/repo/tree/develop/src
+
+# Switch to a local directory
+seed templates update myapp --content-url /path/to/local/files</code></pre>
             </div>
         </section>
 
