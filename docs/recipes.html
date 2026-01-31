@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Recipes - seed-cli</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/bash.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-tertiary: #21262d;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --accent: #58a6ff;
+            --accent-hover: #79b8ff;
+            --border: #30363d;
+            --code-bg: #161b22;
+            --success: #3fb950;
+            --warning: #d29922;
+            --danger: #f85149;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        /* Header */
+        header {
+            border-bottom: 1px solid var(--border);
+            padding: 20px 0;
+        }
+
+        .header-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .logo-row {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .logo-row img {
+            width: 48px;
+            height: 48px;
+            border-radius: 8px;
+        }
+
+        .logo-row h1 {
+            font-size: 1.8rem;
+            font-weight: 600;
+        }
+
+        .logo-row a {
+            text-decoration: none;
+            color: inherit;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .back-link {
+            color: var(--accent);
+            text-decoration: none;
+            font-size: 0.9rem;
+        }
+
+        .back-link:hover {
+            text-decoration: underline;
+        }
+
+        header p {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+            margin-top: 12px;
+        }
+
+        /* Main Content */
+        main {
+            padding: 32px 0;
+        }
+
+        .intro {
+            margin-bottom: 32px;
+        }
+
+        .intro h2 {
+            font-size: 1.5rem;
+            margin-bottom: 12px;
+        }
+
+        .intro p {
+            color: var(--text-secondary);
+        }
+
+        /* Recipe Cards */
+        .recipe {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            margin-bottom: 24px;
+            overflow: hidden;
+        }
+
+        .recipe-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .recipe-header h3 {
+            font-size: 1.25rem;
+            color: var(--text-primary);
+        }
+
+        .recipe-tags {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .tag {
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+            padding: 4px 10px;
+            border-radius: 16px;
+            font-size: 0.75rem;
+        }
+
+        .tag.python { background: rgba(53, 114, 165, 0.3); color: #79b8ff; }
+        .tag.node { background: rgba(61, 139, 61, 0.3); color: #7ee787; }
+        .tag.web { background: rgba(227, 76, 38, 0.3); color: #ff7b72; }
+
+        .recipe-body {
+            padding: 20px 24px;
+        }
+
+        .recipe-description {
+            color: var(--text-secondary);
+            margin-bottom: 16px;
+            font-size: 0.95rem;
+        }
+
+        .recipe-tabs {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 16px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 8px;
+        }
+
+        .recipe-tabs button {
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            padding: 6px 12px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+
+        .recipe-tabs button:hover {
+            color: var(--text-primary);
+            background: var(--bg-tertiary);
+        }
+
+        .recipe-tabs button.active {
+            color: var(--accent);
+            background: var(--bg-tertiary);
+        }
+
+        .recipe-content {
+            display: none;
+        }
+
+        .recipe-content.active {
+            display: block;
+        }
+
+        /* Code Blocks */
+        .code-block {
+            position: relative;
+            margin: 0;
+        }
+
+        .code-block pre {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px;
+            overflow-x: auto;
+            margin: 0;
+        }
+
+        .code-block code {
+            font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+            font-size: 0.875rem;
+            line-height: 1.5;
+        }
+
+        .copy-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .copy-btn:hover {
+            color: var(--text-primary);
+            border-color: var(--text-secondary);
+        }
+
+        .copy-btn.copied {
+            color: var(--success);
+            border-color: var(--success);
+        }
+
+        /* Variables section */
+        .variables {
+            margin-top: 16px;
+            padding: 12px 16px;
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+        }
+
+        .variables h4 {
+            font-size: 0.85rem;
+            color: var(--accent);
+            margin-bottom: 8px;
+        }
+
+        .variables ul {
+            list-style: none;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .variables li {
+            margin-bottom: 4px;
+        }
+
+        .variables code {
+            background: var(--bg-secondary);
+            padding: 2px 6px;
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-size: 0.8rem;
+        }
+
+        /* Footer */
+        footer {
+            border-top: 1px solid var(--border);
+            padding: 24px 0;
+            margin-top: 48px;
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        footer a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            .header-row {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 12px;
+            }
+
+            .recipe-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .recipe-body {
+                padding: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-row">
+                <div class="logo-row">
+                    <a href="index.html">
+                        <img src="https://raw.githubusercontent.com/Isaac12x/seed-cli/master/logo.png" alt="seed-cli logo">
+                        <h1>seed-cli</h1>
+                    </a>
+                </div>
+                <a href="index.html" class="back-link">&larr; Back to Docs</a>
+            </div>
+            <p>Common Templates & Recipes</p>
+        </header>
+
+        <main>
+            <div class="intro">
+                <h2>Ready-to-use Templates</h2>
+                <p>Copy these templates directly or use them as starting points for your projects. Each recipe includes the spec file and usage instructions.</p>
+            </div>
+
+            <!-- Python Package -->
+            <article class="recipe">
+                <div class="recipe-header">
+                    <h3>Python Package</h3>
+                    <div class="recipe-tags">
+                        <span class="tag python">Python</span>
+                        <span class="tag">Package</span>
+                    </div>
+                </div>
+                <div class="recipe-body">
+                    <p class="recipe-description">Standard Python package structure with src layout, tests, and modern tooling (pyproject.toml). Includes <code>source.json</code> &mdash; content is auto-fetched from GitHub on install. Run <code>seed templates update python-package</code> to refresh.</p>
+                    <div class="recipe-tabs" data-recipe="python-pkg">
+                        <button class="active" data-tab="spec">Spec</button>
+                        <button data-tab="usage">Usage</button>
+                    </div>
+                    <div class="recipe-content active" data-recipe="python-pkg" data-tab="spec">
+                        <div class="code-block">
+                            <button class="copy-btn">Copy</button>
+                            <pre><code class="language-plaintext">src/
+├── &lt;package_name&gt;/
+│   ├──__init__.py
+│   ├──main.py
+│   └──utils.py
+├──tests/
+│   ├──__init__.py
+│   └──test_main.py
+├──pyproject.toml
+├──README.md
+├──LICENSE
+└──.gitignore</code></pre>
+                        </div>
+                        <div class="variables">
+                            <h4>Variables</h4>
+                            <ul>
+                                <li><code>package_name</code> - Python package name</li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="recipe-content" data-recipe="python-pkg" data-tab="usage">
+                        <div class="code-block">
+                            <button class="copy-btn">Copy</button>
+                            <pre><code class="language-bash"># Add template from repo
+seed templates add https://github.com/Isaac12x/seed-cli/templates/python-package/spec.tree --name python-package
+
+# Create new project
+seed templates use python-package --vars package_name=myapp
+
+# Or use directly with create
+seed create spec.tree package_name=myapp</code></pre>
+                        </div>
+                    </div>
+                </div>
+            </article>
+
+            <!-- FastAPI Project -->
+            <article class="recipe">
+                <div class="recipe-header">
+                    <h3>FastAPI Application</h3>
+                    <div class="recipe-tags">
+                        <span class="tag python">Python</span>
+                        <span class="tag web">API</span>
+                    </div>
+                </div>
+                <div class="recipe-body">
+                    <p class="recipe-description">FastAPI project with routers, models, schemas, and database setup. Includes <code>source.json</code> &mdash; content is auto-fetched from GitHub on install. Run <code>seed templates update fastapi</code> to refresh.</p>
+                    <div class="recipe-tabs" data-recipe="fastapi">
+                        <button class="active" data-tab="spec">Spec</button>
+                        <button data-tab="usage">Usage</button>
+                    </div>
+                    <div class="recipe-content active" data-recipe="fastapi" data-tab="spec">
+                        <div class="code-block">
+                            <button class="copy-btn">Copy</button>
+                            <pre><code class="language-plaintext">.
+├──src/
+│   ├──app/
+│   │   ├──__init__.py
+│   │   ├──main.py
+│   │   ├──api/
+│   │   │  ├──__init__.py
+│   │   │  ├──routes/
+│   │   │  ├──health.py
+│   │   │  └──deps.py
+│   │   ├──core/
+│   │   │  ├──__init__.py
+│   │   │  └──config.py
+│   │   ├──models/
+│   │   │  └──__init__.py
+│   │   ├──schemas/
+│   │   │  └──__init__.py
+│   │   ├──services/
+│   │   │  └──__init__.py
+│   │   ├──db/
+│   │   │  ├──__init__.py
+│   │   │  └──session.py
+├──tests/
+│   ├──__init__.py
+│   ├──conftest.py
+│   └──api/
+│       └──test_health.py
+└──alembic/
+   ├──versions/
+   ├──env.py
+   └──alembic.ini</code></pre>
+                        </div>
+                    </div>
+                    <div class="recipe-content" data-recipe="fastapi" data-tab="usage">
+                        <div class="code-block">
+                            <button class="copy-btn">Copy</button>
+                            <pre><code class="language-bash"># Add template from repo
+seed templates add https://github.com/Isaac12x/seed-cli/templates/fastapi/spec.tree --name fastapi
+
+# Create FastAPI project
+seed templates use fastapi</code></pre>
+                        </div>
+                    </div>
+                </div>
+            </article>
+
+            <!-- Node.js/TypeScript Project -->
+            <article class="recipe">
+                <div class="recipe-header">
+                    <h3>Node.js TypeScript</h3>
+                    <div class="recipe-tags">
+                        <span class="tag node">Node.js</span>
+                        <span class="tag">TypeScript</span>
+                    </div>
+                </div>
+                <div class="recipe-body">
+                    <p class="recipe-description">TypeScript Node.js project with ESLint, Prettier, and testing setup. Includes <code>source.json</code> &mdash; content is auto-fetched from GitHub on install. Run <code>seed templates update node-typescript</code> to refresh.</p>
+                    <div class="recipe-tabs" data-recipe="node-ts">
+                        <button class="active" data-tab="spec">Spec</button>
+                        <button data-tab="usage">Usage</button>
+                    </div>
+                    <div class="recipe-content active" data-recipe="node-ts" data-tab="spec">
+                        <div class="code-block">
+                            <button class="copy-btn">Copy</button>
+                            <pre><code class="language-plaintext">.
+├──src/
+│   ├──index.ts
+│   ├──config/
+│   │   └──index.ts
+│   ├──utils/
+│   │   └──index.ts
+│   └──types/
+│       └──index.ts
+│──tests/
+│   └──index.test.ts
+├──package.json
+├──tsconfig.json
+├──.eslintrc.json
+├──.prettierrc
+├──README.md
+├──LICENSE
+├──.gitignore
+└──.nvmrc</code></pre>
+                        </div>
+                    </div>
+                    <div class="recipe-content" data-recipe="node-ts" data-tab="usage">
+                        <div class="code-block">
+                            <button class="copy-btn">Copy</button>
+                            <pre><code class="language-bash"># Add template from repo
+seed templates add https://github.com/Isaac12x/seed-cli/templates/node-typescript/spec.tree --name node-typescript
+
+# Create TypeScript project
+seed templates use node-typescript</code></pre>
+                        </div>
+                    </div>
+                </div>
+            </article>
+
+            <!-- Ralph -->
+            <article class="recipe">
+                <div class="recipe-header">
+                    <h3>Ralph</h3>
+                    <div class="recipe-tags">
+                        <span class="tag">Scripts</span>
+                        <span class="tag">PRD</span>
+                    </div>
+                </div>
+                <div class="recipe-body">
+                    <p class="recipe-description">Ralph script structure for PRD-driven development workflows.</p>
+                    <div class="recipe-tabs" data-recipe="ralph">
+                        <button class="active" data-tab="spec">Spec</button>
+                        <button data-tab="usage">Usage</button>
+                    </div>
+                    <div class="recipe-content active" data-recipe="ralph" data-tab="spec">
+                        <div class="code-block">
+                            <button class="copy-btn">Copy</button>
+                            <pre><code class="language-plaintext">./
+├── scripts/
+    ├── ralph/
+        ├── ralph-once.sh
+        ├── ralph.sh
+        ├── progress.txt
+        ├── prd.json
+        └── PRD.md
+    ├──...
+├──...</code></pre>
+                        </div>
+                    </div>
+                    <div class="recipe-content" data-recipe="ralph" data-tab="usage">
+                        <div class="code-block">
+                            <button class="copy-btn">Copy</button>
+                            <pre><code class="language-bash"># Add template from repo
+seed templates add https://github.com/Isaac12x/seed-cli/templates/ralph/spec.tree --name ralph
+
+# Add ralph scripts to your project
+seed templates use ralph</code></pre>
+                        </div>
+                    </div>
+                </div>
+            </article>
+
+        </main>
+
+        <footer>
+            <p>
+                <a href="index.html">Documentation</a> ·
+                <a href="https://github.com/Isaac12x/seed-cli">GitHub</a> ·
+                <a href="https://pypi.org/project/seed-cli/">PyPI</a> ·
+                MIT License
+            </p>
+        </footer>
+    </div>
+
+    <script>
+        // Initialize syntax highlighting
+        hljs.highlightAll();
+
+        // Recipe tab switching
+        document.querySelectorAll('.recipe-tabs').forEach(tabContainer => {
+            const recipe = tabContainer.dataset.recipe;
+            const buttons = tabContainer.querySelectorAll('button');
+            const contents = tabContainer.closest('.recipe-body').querySelectorAll('.recipe-content');
+
+            buttons.forEach(button => {
+                button.addEventListener('click', () => {
+                    const tab = button.dataset.tab;
+
+                    // Update buttons
+                    buttons.forEach(btn => btn.classList.remove('active'));
+                    button.classList.add('active');
+
+                    // Update content
+                    contents.forEach(content => {
+                        content.classList.remove('active');
+                        if (content.dataset.tab === tab) {
+                            content.classList.add('active');
+                        }
+                    });
+                });
+            });
+        });
+
+        // Copy to clipboard
+        document.querySelectorAll('.copy-btn').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const code = btn.nextElementSibling.querySelector('code').textContent;
+                try {
+                    await navigator.clipboard.writeText(code);
+                    btn.textContent = 'Copied!';
+                    btn.classList.add('copied');
+                    setTimeout(() => {
+                        btn.textContent = 'Copy';
+                        btn.classList.remove('copied');
+                    }, 2000);
+                } catch (err) {
+                    btn.textContent = 'Failed';
+                    setTimeout(() => btn.textContent = 'Copy', 2000);
+                }
+            });
+        });
+    </script>
+</body>
+</html>

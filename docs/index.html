@@ -1,0 +1,1254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>seed-cli - Terraform for your filesystem</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/bash.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-tertiary: #21262d;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --accent: #58a6ff;
+            --accent-hover: #79b8ff;
+            --border: #30363d;
+            --code-bg: #161b22;
+            --success: #3fb950;
+            --warning: #d29922;
+            --danger: #f85149;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        /* Header */
+        header {
+            border-bottom: 1px solid var(--border);
+            padding: 20px 0;
+        }
+
+        .logo-row {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 12px;
+        }
+
+        .logo-row img {
+            width: 48px;
+            height: 48px;
+            border-radius: 8px;
+        }
+
+        .logo-row h1 {
+            font-size: 1.8rem;
+            font-weight: 600;
+        }
+
+        header p {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+        }
+
+        /* Tab Navigation */
+        .tab-nav {
+            display: flex;
+            gap: 4px;
+            padding: 16px 0;
+            border-bottom: 1px solid var(--border);
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .tab-nav button {
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            padding: 8px 16px;
+            font-size: 0.9rem;
+            cursor: pointer;
+            border-radius: 6px;
+            white-space: nowrap;
+            transition: all 0.2s;
+        }
+
+        .tab-nav button:hover {
+            color: var(--text-primary);
+            background: var(--bg-tertiary);
+        }
+
+        .tab-nav button.active {
+            color: var(--text-primary);
+            background: var(--bg-secondary);
+        }
+
+        /* Tab Content */
+        .tab-content {
+            display: none;
+            padding: 32px 0;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .tab-content h2 {
+            font-size: 1.5rem;
+            margin-bottom: 16px;
+            color: var(--text-primary);
+        }
+
+        .tab-content h3 {
+            font-size: 1.1rem;
+            margin: 24px 0 12px;
+            color: var(--text-primary);
+        }
+
+        .tab-content h4 {
+            font-size: 1rem;
+            margin: 20px 0 8px;
+            color: var(--accent);
+        }
+
+        .tab-content p {
+            color: var(--text-secondary);
+            margin-bottom: 16px;
+        }
+
+        .tab-content ul, .tab-content ol {
+            color: var(--text-secondary);
+            margin-left: 24px;
+            margin-bottom: 16px;
+        }
+
+        .tab-content li {
+            margin-bottom: 8px;
+        }
+
+        .tab-content code:not(pre code) {
+            background: var(--bg-tertiary);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.9em;
+            color: var(--accent);
+        }
+
+        /* Hero Section */
+        .hero {
+            text-align: center;
+            padding: 48px 0 32px;
+        }
+
+        .hero img {
+            width: 100px;
+            height: 100px;
+            border-radius: 16px;
+            margin-bottom: 20px;
+        }
+
+        .hero h2 {
+            font-size: 1.8rem;
+            margin-bottom: 8px;
+        }
+
+        .hero .tagline {
+            font-size: 1.2rem;
+            color: var(--accent);
+            margin-bottom: 24px;
+        }
+
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin: 24px 0;
+        }
+
+        .feature {
+            background: var(--bg-secondary);
+            padding: 16px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+
+        .feature h4 {
+            color: var(--accent);
+            margin: 0 0 8px 0;
+        }
+
+        .feature p {
+            font-size: 0.9rem;
+            margin: 0;
+        }
+
+        /* Code Blocks */
+        .code-block {
+            position: relative;
+            margin: 16px 0;
+        }
+
+        .code-block pre {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px;
+            overflow-x: auto;
+        }
+
+        .code-block code {
+            font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+            font-size: 0.875rem;
+            line-height: 1.5;
+        }
+
+        .copy-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .copy-btn:hover {
+            color: var(--text-primary);
+            border-color: var(--text-secondary);
+        }
+
+        .copy-btn.copied {
+            color: var(--success);
+            border-color: var(--success);
+        }
+
+        /* Command Cards */
+        .command-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+
+        .command-card h4 {
+            color: var(--accent);
+            font-family: 'SF Mono', Monaco, monospace;
+            margin: 0 0 8px 0;
+            font-size: 1rem;
+        }
+
+        .command-card p {
+            margin: 0 0 12px 0;
+            font-size: 0.9rem;
+        }
+
+        .command-card .options {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .command-card .options code {
+            color: var(--text-primary);
+        }
+
+        /* Badge */
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            margin-left: 8px;
+        }
+
+        .badge.danger {
+            background: rgba(248, 81, 73, 0.2);
+            color: var(--danger);
+        }
+
+        .badge.warning {
+            background: rgba(210, 153, 34, 0.2);
+            color: var(--warning);
+        }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            .tab-nav {
+                gap: 2px;
+            }
+
+            .tab-nav button {
+                padding: 6px 10px;
+                font-size: 0.8rem;
+            }
+
+            .hero h2 {
+                font-size: 1.4rem;
+            }
+
+            .hero .tagline {
+                font-size: 1rem;
+            }
+
+            .features {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Footer */
+        footer {
+            border-top: 1px solid var(--border);
+            padding: 24px 0;
+            margin-top: 48px;
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        footer a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        /* Divider */
+        hr {
+            border: none;
+            border-top: 1px solid var(--border);
+            margin: 32px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo-row">
+                <img src="https://raw.githubusercontent.com/Isaac12x/seed-cli/master/logo.png" alt="seed-cli logo">
+                <h1>seed-cli</h1>
+            </div>
+            <p>Declarative filesystem management for developers</p>
+        </header>
+
+        <nav class="tab-nav">
+            <button class="active" data-tab="overview">Overview</button>
+            <button data-tab="commands">Core Commands</button>
+            <button data-tab="sync">Sync & Match</button>
+            <button data-tab="syntax">Spec Syntax</button>
+            <button data-tab="templates">Templates</button>
+            <button data-tab="lock">Versioning</button>
+            <button data-tab="snapshots">Snapshots</button>
+            <button data-tab="utils">Utilities</button>
+        </nav>
+
+        <!-- Overview Tab (merged with Quick Start) -->
+        <section id="overview" class="tab-content active">
+            <div class="hero">
+                <img src="https://raw.githubusercontent.com/Isaac12x/seed-cli/master/logo.png" alt="seed-cli">
+                <h2>Terraform for your filesystem</h2>
+                <p class="tagline">Define, version, and replicate directory structures declaratively</p>
+                <p style="margin-top: 16px;"><a href="recipes.html" style="color: var(--accent); text-decoration: none; border: 1px solid var(--border); padding: 8px 16px; border-radius: 6px;">Browse Recipes &rarr;</a></p>
+            </div>
+
+            <div class="features">
+                <div class="feature">
+                    <h4>Declarative</h4>
+                    <p>Define your filesystem structure in simple, readable spec files</p>
+                </div>
+                <div class="feature">
+                    <h4>Snapshots</h4>
+                    <p>Capture and restore directory states at any point in time</p>
+                </div>
+                <div class="feature">
+                    <h4>Versioning</h4>
+                    <p>Track changes, lock versions, and safely upgrade structures</p>
+                </div>
+                <div class="feature">
+                    <h4>Templates</h4>
+                    <p>Reusable specs with variables for consistent project scaffolding</p>
+                </div>
+            </div>
+
+            <hr>
+
+            <h2>Quick Start</h2>
+
+            <h3>1. Install</h3>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash">pip install seed-cli</code></pre>
+            </div>
+
+            <h3>2. Capture existing structure</h3>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash">seed capture --out project.tree</code></pre>
+            </div>
+
+            <h3>3. Preview changes</h3>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash">seed plan project.tree</code></pre>
+            </div>
+
+            <h3>4. Apply the spec</h3>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash">seed apply project.tree</code></pre>
+            </div>
+
+            <h3>Global Options</h3>
+            <p>Available on all commands:</p>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash">seed [command] --verbose          # Enable verbose logging
+seed [command] --debug            # Enable debug logging
+seed [command] --ignore PATTERN   # Extra ignore patterns (glob)
+seed [command] --targets PATTERN  # Extra targets (glob)
+seed [command] --target-mode {prefix,exact}  # Target matching mode</code></pre>
+            </div>
+        </section>
+
+        <!-- Core Commands Tab -->
+        <section id="commands" class="tab-content">
+            <h2>Core Commands</h2>
+
+            <div class="command-card">
+                <h4>seed plan &lt;spec&gt;</h4>
+                <p>Parse spec and generate execution plan. Runs plugin parse + plan lifecycle and outputs the planned changes without modifying the filesystem.</p>
+                <div class="options">
+                    <code>--base BASE</code> Base directory (default: current directory)<br>
+                    <code>--vars VARS</code> Template variables (key=value)<br>
+                    <code>--out OUT</code> Output plan to file (JSON format)<br>
+                    <code>--dot</code> Output plan as Graphviz DOT format<br>
+                    <code>--no-skip</code> Hide SKIP lines in output for cleaner view
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash"># Preview what would be created
+seed plan project.tree
+
+# With template variables
+seed plan project.tree --vars environment=prod
+
+# Export plan as JSON
+seed plan project.tree --out plan.json
+
+# Export as Graphviz DOT
+seed plan project.tree --dot > plan.dot</code></pre>
+            </div>
+
+            <div class="command-card">
+                <h4>seed apply &lt;spec&gt;</h4>
+                <p>Acquire state lock, run hooks (pre_apply, post_apply), execute plan, and run plugin build lifecycle. Creates files and directories as specified.</p>
+                <div class="options">
+                    <code>--base BASE</code> Base directory (default: current directory)<br>
+                    <code>--dangerous</code> Allow dangerous operations<br>
+                    <code>--dry-run</code> Show what would be executed without making changes<br>
+                    <code>--yes, -y</code> Create all optional items (marked with ?) without prompting<br>
+                    <code>--skip-optional</code> Skip all optional items (marked with ?) without prompting
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash"># Apply spec to current directory
+seed apply project.tree
+
+# Apply to specific directory
+seed apply project.tree --base ./myproject
+
+# Preview without making changes
+seed apply project.tree --dry-run
+
+# Auto-create all optional items
+seed apply project.tree --yes
+
+# Skip all optional items
+seed apply project.tree --skip-optional</code></pre>
+            </div>
+
+            <div class="command-card">
+                <h4>seed diff &lt;spec&gt;</h4>
+                <p>Compare spec with filesystem and show missing, extra, and drifted paths. Useful for detecting drift from your intended structure.</p>
+                <div class="options">
+                    <code>--base BASE</code> Base directory (default: current directory)<br>
+                    <code>--ignore PATTERN</code> Ignore paths matching pattern (can be repeated)<br>
+                    <code>--no-sublevels</code> Hide extras inside directories defined in the spec
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash"># Compare spec with current directory
+seed diff project.tree
+
+# Ignore certain patterns
+seed diff project.tree --ignore "*.pyc" --ignore "__pycache__"
+
+# Only show top-level extras
+seed diff project.tree --no-sublevels</code></pre>
+            </div>
+
+            <div class="command-card">
+                <h4>seed capture</h4>
+                <p>Capture current filesystem state as a spec file. Useful for creating initial specs from existing projects.</p>
+                <div class="options">
+                    <code>--base BASE</code> Base directory (default: current directory)<br>
+                    <code>--json</code> Output in JSON format<br>
+                    <code>--dot</code> Output in Graphviz DOT format<br>
+                    <code>--out OUT</code> Output file path (prints to stdout if not specified)
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash"># Capture to file
+seed capture --out project.tree
+
+# Capture specific directory
+seed capture --base ./src --out src.tree
+
+# Output as JSON
+seed capture --json --out project.json
+
+# Output as Graphviz DOT
+seed capture --dot --out project.dot</code></pre>
+            </div>
+
+            <div class="command-card">
+                <h4>seed create &lt;spec&gt; &lt;values...&gt;</h4>
+                <p>Create a new instance of a template directory structure. Use with specs containing <code>&lt;varname&gt;/</code> template patterns.</p>
+                <div class="options">
+                    <code>--base BASE</code> Base directory (default: current directory)<br>
+                    <code>--dry-run</code> Preview what would be created
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash"># Create new version directory from template
+seed create releases.tree version_id=v3
+
+# Preview without creating
+seed create releases.tree version_id=v3 --dry-run
+
+# Multiple variables
+seed create project.tree name=myapp env=production</code></pre>
+            </div>
+        </section>
+
+        <!-- Sync & Match Tab -->
+        <section id="sync" class="tab-content">
+            <h2>Sync & Match</h2>
+            <p>These commands modify the filesystem to match your spec exactly, including deleting extra files. Use with caution.</p>
+
+            <div class="command-card">
+                <h4>seed sync &lt;spec&gt; <span class="badge danger">dangerous</span></h4>
+                <p>Same as apply, but also deletes extraneous files. Plugins may veto deletions. Requires <code>--dangerous</code> flag.</p>
+                <div class="options">
+                    <code>--base BASE</code> Base directory (default: current directory)<br>
+                    <code>--dangerous</code> Required flag to enable sync (not required with --dry-run)<br>
+                    <code>--dry-run</code> Show what would be executed without making changes<br>
+                    <code>--yes, -y</code> Create all optional items (marked with ?) without prompting<br>
+                    <code>--skip-optional</code> Skip all optional items (marked with ?) without prompting
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash"># Preview what would be synced
+seed sync project.tree --dry-run
+
+# Actually sync (deletes extra files!)
+seed sync project.tree --dangerous
+
+# Sync with auto-create optionals
+seed sync project.tree --dangerous --yes</code></pre>
+            </div>
+
+            <div class="command-card">
+                <h4>seed match &lt;spec&gt; <span class="badge danger">dangerous</span></h4>
+                <p>Modify filesystem to match the spec. Creates missing items and deletes extras. Use <code>...</code> in spec to mark directories where extra files are allowed.</p>
+                <div class="options">
+                    <code>--base BASE</code> Base directory (default: current directory)<br>
+                    <code>--dangerous</code> Required flag (will create/delete files). Not required with --dry-run<br>
+                    <code>--dry-run</code> Preview changes without modifying filesystem<br>
+                    <code>--yes, -y</code> Create all optional items (marked with ?) without prompting<br>
+                    <code>--skip-optional</code> Skip all optional items (marked with ?) without prompting
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash"># Preview what would change
+seed match project.tree --dry-run
+
+# Match filesystem to spec (creates and deletes!)
+seed match project.tree --dangerous
+
+# Match specific directory
+seed match project.tree --base ./target --dangerous</code></pre>
+            </div>
+
+            <h3>Protecting Directories from Deletion</h3>
+            <p>Use <code>...</code> to mark directories where extra files should be preserved:</p>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-plaintext">project/
+├── src/
+│   └── main.py
+├── data/       ...   # Extra files here won't be deleted
+└── config.yaml</code></pre>
+            </div>
+        </section>
+
+        <!-- Spec Syntax Tab -->
+        <section id="syntax" class="tab-content">
+            <h2>Spec Syntax</h2>
+            <p>Spec files use an intuitive tree-like syntax. Supports <code>.tree</code>, <code>.yaml</code>, <code>.json</code>, <code>.dot</code>, and even images.</p>
+
+            <h3>Basic Structure</h3>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-plaintext">project/
+├── src/
+│   ├── main.py
+│   └── utils/
+│       └── helpers.py
+├── tests/
+│   └── test_main.py
+├── config.yaml
+└── README.md</code></pre>
+            </div>
+
+            <h3>Annotations</h3>
+            <ul>
+                <li><code>@generated</code> - File is auto-generated, can be safely overwritten</li>
+                <li><code>@manual</code> - File is manually maintained, never overwrite</li>
+                <li><code>?</code> - Optional file or directory (prompts during apply)</li>
+                <li><code>...</code> - Directory has contents but we don't manage them (preserves extras during sync/match)</li>
+            </ul>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-plaintext">scripts/
+├── build.py      @generated
+├── config.json   @manual
+├── cache/        ...
+└── docs/?</code></pre>
+            </div>
+
+            <h3>Template Variables</h3>
+            <p>Create reusable specs with dynamic values:</p>
+            <ul>
+                <li><code>&lt;varname&gt;/</code> - Directory placeholder, replaced at runtime</li>
+                <li><code>{{var}}</code> - String interpolation in file contents</li>
+            </ul>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-plaintext">&lt;project_name&gt;/
+├── src/
+│   └── &lt;module_name&gt;/
+│       └── __init__.py
+├── &lt;environment&gt;/
+│   └── config.yaml
+└── README.md</code></pre>
+            </div>
+
+            <h3>Using Variables</h3>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash"># With seed plan/apply
+seed apply spec.tree --vars project_name=myapp module_name=core
+
+# With seed create
+seed create spec.tree project_name=myapp environment=prod</code></pre>
+            </div>
+
+            <h3>Includes</h3>
+            <p>Import other spec files to compose larger structures:</p>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-plaintext">@include base.tree
+@include ./shared/common.tree
+
+project/
+├── custom/
+└── specific.py</code></pre>
+            </div>
+        </section>
+
+        <!-- Templates Tab -->
+        <section id="templates" class="tab-content">
+            <h2>Template Registry</h2>
+            <p>Manage reusable spec templates from GitHub or local sources.</p>
+
+            <div class="command-card">
+                <h4>seed templates add &lt;source&gt;</h4>
+                <p>Add a template from GitHub URL or local file path. Supports fetching real file contents from a content source.</p>
+                <div class="options">
+                    <code>--name, -n NAME</code> Name for the template (default: derived from URL/filename)<br>
+                    <code>--version, -v VERSION</code> Version name (default: auto-increment)<br>
+                    <code>--content-url URL</code> Fetch file contents from a local path or GitHub tree URL
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash"># From GitHub
+seed templates add https://github.com/user/template-repo
+
+# From local file
+seed templates add ./my-templates/python-project.tree
+
+# With custom name
+seed templates add ./template.tree --name my-template
+
+# With specific version
+seed templates add ./template.tree --name my-template --version v1.0
+
+# With content from GitHub
+seed templates add ./fastapi --name fastapi \
+  --content-url https://github.com/tiangolo/full-stack-fastapi-template/tree/master/backend/app
+
+# With content from a local directory
+seed templates add ./my-template --name myapp --content-url /path/to/local/files</code></pre>
+            </div>
+
+            <div class="command-card">
+                <h4>seed templates list</h4>
+                <p>List all stored templates with their versions and lock status.</p>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash">seed templates list</code></pre>
+            </div>
+
+            <div class="command-card">
+                <h4>seed templates use &lt;name&gt;</h4>
+                <p>Apply a template to the filesystem. Creates the directory structure defined in the template.</p>
+                <div class="options">
+                    <code>--version, -v VERSION</code> Version to use (default: current)<br>
+                    <code>--base BASE</code> Base directory (default: current directory)<br>
+                    <code>--vars VARS</code> Template variables (key=value)<br>
+                    <code>--yes, -y</code> Apply without prompting<br>
+                    <code>--dry-run</code> Show plan without applying
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash"># Use template in current directory
+seed templates use python-project
+
+# Use in specific directory
+seed templates use python-project --base ./myproject
+
+# With variables
+seed templates use python-project --vars name=myapp version=1.0
+
+# Preview without applying
+seed templates use python-project --dry-run
+
+# Use specific version
+seed templates use python-project --version v2</code></pre>
+            </div>
+
+            <div class="command-card">
+                <h4>seed templates show &lt;name&gt;</h4>
+                <p>Show the content of a template.</p>
+                <div class="options">
+                    <code>--version, -v VERSION</code> Version to show (default: current)
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash"># Show current version
+seed templates show python-project
+
+# Show specific version
+seed templates show python-project --version v1</code></pre>
+            </div>
+
+            <div class="command-card">
+                <h4>seed templates versions &lt;name&gt;</h4>
+                <p>Manage template versions. List versions, add new versions, or set current version.</p>
+                <div class="options">
+                    <code>--add PATH</code> Add a new version from file<br>
+                    <code>--name VERSION</code> Name for the new version (with --add)<br>
+                    <code>--set-current VERSION</code> Set version as current
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash"># List versions
+seed templates versions python-project
+
+# Add new version
+seed templates versions python-project --add ./updated.tree --name v2
+
+# Set current version
+seed templates versions python-project --set-current v2</code></pre>
+            </div>
+
+            <div class="command-card">
+                <h4>seed templates lock &lt;name&gt;</h4>
+                <p>Lock or unlock a template to prevent/allow updates.</p>
+                <div class="options">
+                    <code>--version, -v VERSION</code> Version to set as current before locking<br>
+                    <code>--unlock</code> Unlock instead of lock
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash"># Lock template
+seed templates lock python-project
+
+# Lock at specific version
+seed templates lock python-project --version v1
+
+# Unlock template
+seed templates lock python-project --unlock</code></pre>
+            </div>
+
+            <div class="command-card">
+                <h4>seed templates update &lt;name&gt;</h4>
+                <p>Re-fetch content from a template's content source. Use <code>--all</code> to update every template that has a content URL. Use <code>--content-url</code> to change where content is fetched from.</p>
+                <div class="options">
+                    <code>--all</code> Update all templates with content sources<br>
+                    <code>--content-url URL</code> Set a new content source (local path or GitHub tree URL)
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash"># Re-fetch content for a template
+seed templates update fastapi
+
+# Update all templates
+seed templates update --all
+
+# Change content source
+seed templates update myapp --content-url https://github.com/owner/repo/tree/develop/src
+
+# Switch from GitHub to local directory
+seed templates update myapp --content-url /path/to/local/files</code></pre>
+            </div>
+
+            <div class="command-card">
+                <h4>seed templates remove &lt;name&gt;</h4>
+                <p>Remove a template from the registry.</p>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash">seed templates remove python-project</code></pre>
+            </div>
+
+            <hr>
+
+            <h3>Content Sources (source.json)</h3>
+            <p>Templates can include a <code>source.json</code> file that tells seed where to fetch real file contents from. When a template with a <code>source.json</code> is installed, seed automatically downloads the files.</p>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-json">{
+  "content_url": "https://github.com/owner/repo/tree/main/src"
+}</code></pre>
+            </div>
+            <p>Content sources support both local directory paths and GitHub tree URLs. The built-in <code>fastapi</code>, <code>python-package</code>, and <code>node-typescript</code> templates ship with <code>source.json</code> and auto-fetch content on first use.</p>
+
+            <h3>Changing a Template's Content Source</h3>
+            <p>Use <code>seed templates update</code> with <code>--content-url</code> to point a template at a different source. This updates both <code>meta.json</code> and <code>source.json</code> in <code>~/.seed/templates/&lt;name&gt;/</code>.</p>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash"># Point to a different repo/branch
+seed templates update myapp \
+  --content-url https://github.com/owner/repo/tree/develop/src
+
+# Switch to a local directory
+seed templates update myapp --content-url /path/to/local/files</code></pre>
+            </div>
+        </section>
+
+        <!-- Lock & Versioning Tab -->
+        <section id="lock" class="tab-content">
+            <h2>Versioning & Locking</h2>
+            <p>Lock filesystem structures to a spec. Supports versioning and watch mode to prevent drift.</p>
+
+            <div class="command-card">
+                <h4>seed lock set &lt;spec&gt;</h4>
+                <p>Set the active structure spec. Creates a version if needed.</p>
+                <div class="options">
+                    <code>--base BASE</code> Base directory<br>
+                    <code>--version, -v VERSION</code> Version name (default: auto-increment)
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash"># Set lock with auto-versioning
+seed lock set project.tree
+
+# Set lock with specific version name
+seed lock set project.tree --version v1.0
+
+# Set lock for specific directory
+seed lock set project.tree --base ./myproject</code></pre>
+            </div>
+
+            <div class="command-card">
+                <h4>seed lock watch</h4>
+                <p>Watch filesystem and enforce structure continuously. Runs as a daemon to detect and report drift.</p>
+                <div class="options">
+                    <code>--base BASE</code> Base directory<br>
+                    <code>--interval INTERVAL</code> Check interval in seconds
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash"># Start watching with default interval
+seed lock watch
+
+# Watch with custom interval (every 5 seconds)
+seed lock watch --interval 5
+
+# Watch specific directory
+seed lock watch --base ./myproject</code></pre>
+            </div>
+
+            <div class="command-card">
+                <h4>seed lock list</h4>
+                <p>List available structure versions.</p>
+                <div class="options">
+                    <code>--base BASE</code> Base directory
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash">seed lock list</code></pre>
+            </div>
+
+            <div class="command-card">
+                <h4>seed lock status</h4>
+                <p>Show current structure lock status including active version and any drift.</p>
+                <div class="options">
+                    <code>--base BASE</code> Base directory
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash">seed lock status</code></pre>
+            </div>
+
+            <div class="command-card">
+                <h4>seed lock upgrade &lt;version&gt; <span class="badge danger">dangerous</span></h4>
+                <p>Upgrade to a newer structure version. Applies changes to bring filesystem to the new version.</p>
+                <div class="options">
+                    <code>--base BASE</code> Base directory<br>
+                    <code>--dangerous</code> Apply changes (required)<br>
+                    <code>--dry-run</code> Preview changes
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash"># Preview upgrade
+seed lock upgrade v2 --dry-run
+
+# Apply upgrade
+seed lock upgrade v2 --dangerous</code></pre>
+            </div>
+
+            <div class="command-card">
+                <h4>seed lock downgrade &lt;version&gt; <span class="badge danger">dangerous</span></h4>
+                <p>Downgrade to an older structure version.</p>
+                <div class="options">
+                    <code>--base BASE</code> Base directory<br>
+                    <code>--dangerous</code> Apply changes (required)<br>
+                    <code>--dry-run</code> Preview changes
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash"># Preview downgrade
+seed lock downgrade v1 --dry-run
+
+# Apply downgrade
+seed lock downgrade v1 --dangerous</code></pre>
+            </div>
+        </section>
+
+        <!-- Snapshots Tab -->
+        <section id="snapshots" class="tab-content">
+            <h2>Snapshots & Specs History</h2>
+            <p>Snapshots are created automatically before apply/match/sync operations. Use them to undo changes.</p>
+
+            <h3>Revert Command</h3>
+
+            <div class="command-card">
+                <h4>seed revert [snapshot_id]</h4>
+                <p>Revert filesystem to a previous snapshot. Snapshots are created automatically before apply/match/sync operations.</p>
+                <div class="options">
+                    <code>--base BASE</code> Base directory (default: current directory)<br>
+                    <code>--list</code> List available snapshots<br>
+                    <code>--dry-run</code> Preview what would be reverted<br>
+                    <code>--delete ID</code> Delete a specific snapshot
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash"># List all snapshots
+seed revert --list
+
+# Revert to latest snapshot
+seed revert
+
+# Revert to specific snapshot
+seed revert abc123
+
+# Preview revert
+seed revert abc123 --dry-run
+
+# Delete a snapshot
+seed revert --delete abc123</code></pre>
+            </div>
+
+            <hr>
+
+            <h3>Specs History</h3>
+            <p>View and manage automatically captured spec versions.</p>
+
+            <div class="command-card">
+                <h4>seed specs list</h4>
+                <p>List all captured spec versions with timestamps and metadata.</p>
+                <div class="options">
+                    <code>--base BASE</code> Base directory
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash">seed specs list</code></pre>
+            </div>
+
+            <div class="command-card">
+                <h4>seed specs show [version]</h4>
+                <p>Show content of a spec version.</p>
+                <div class="options">
+                    <code>--base BASE</code> Base directory<br>
+                    <code>version</code> Version to show (e.g., 1 or v1). Default: latest
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash"># Show latest spec
+seed specs show
+
+# Show specific version
+seed specs show v1
+seed specs show 2</code></pre>
+            </div>
+
+            <div class="command-card">
+                <h4>seed specs diff &lt;v1&gt; &lt;v2&gt;</h4>
+                <p>Compare two spec versions to see what changed.</p>
+                <div class="options">
+                    <code>--base BASE</code> Base directory
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash"># Compare two versions
+seed specs diff v1 v2
+seed specs diff 1 3</code></pre>
+            </div>
+        </section>
+
+        <!-- Utilities Tab -->
+        <section id="utils" class="tab-content">
+            <h2>Utilities</h2>
+
+            <h3>Doctor</h3>
+            <div class="command-card">
+                <h4>seed doctor &lt;spec&gt;</h4>
+                <p>Lint spec file and optionally auto-fix issues. Checks for syntax errors, invalid paths, and common mistakes.</p>
+                <div class="options">
+                    <code>--base BASE</code> Base directory (default: current directory)<br>
+                    <code>--fix</code> Automatically fix issues when possible
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash"># Check spec for issues
+seed doctor project.tree
+
+# Auto-fix issues
+seed doctor project.tree --fix</code></pre>
+            </div>
+
+            <hr>
+
+            <h3>Export</h3>
+            <div class="command-card">
+                <h4>seed export &lt;format&gt;</h4>
+                <p>Export filesystem state or plan in various formats: tree, json, plan, or dot.</p>
+                <div class="options">
+                    <code>--input INPUT</code> Input spec or plan file (default: capture from filesystem)<br>
+                    <code>--out OUT</code> Output file path (required)<br>
+                    <code>--base BASE</code> Base directory (default: current directory)
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash"># Export current filesystem as tree
+seed export tree --out structure.tree
+
+# Export as JSON
+seed export json --out structure.json
+
+# Export as Graphviz DOT
+seed export dot --out structure.dot
+
+# Export existing spec to different format
+seed export json --input project.tree --out project.json</code></pre>
+            </div>
+
+            <hr>
+
+            <h3>Hooks</h3>
+            <div class="command-card">
+                <h4>seed hooks install</h4>
+                <p>Install git hooks (e.g., pre-commit) to automatically validate filesystem structure on commits.</p>
+                <div class="options">
+                    <code>--hook HOOK</code> Hook name to install (default: pre-commit)
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash"># Install default pre-commit hook
+seed hooks install
+
+# Install specific hook
+seed hooks install --hook pre-push</code></pre>
+            </div>
+
+            <hr>
+
+            <h3>Utils</h3>
+
+            <div class="command-card">
+                <h4>seed utils extract-tree &lt;image&gt;</h4>
+                <p>Extract tree structure from an image using OCR. Useful for converting screenshots of directory structures into spec files.</p>
+                <div class="options">
+                    <code>--out OUT</code> Output .tree file path (default: image path with .tree extension)<br>
+                    <code>--vars VARS</code> Template variables (key=value)<br>
+                    <code>--raw</code> Output raw OCR text without cleaning (for debugging)
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash"># Extract from screenshot
+seed utils extract-tree screenshot.png
+
+# Specify output path
+seed utils extract-tree screenshot.png --out project.tree
+
+# Debug OCR output
+seed utils extract-tree screenshot.png --raw</code></pre>
+            </div>
+
+            <div class="command-card">
+                <h4>seed utils state-lock</h4>
+                <p>Manage execution state locks for concurrent access control. Use if a process crashed and left a stale lock.</p>
+                <div class="options">
+                    <code>--base BASE</code> Base directory<br>
+                    <code>--renew</code> Renew existing lock<br>
+                    <code>--force-unlock</code> Force unlock (use if process crashed)
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash"># Check lock status
+seed utils state-lock
+
+# Force unlock after crash
+seed utils state-lock --force-unlock
+
+# Renew existing lock
+seed utils state-lock --renew</code></pre>
+            </div>
+        </section>
+
+        <footer>
+            <p>
+                <a href="recipes.html">Recipes</a> ·
+                <a href="https://github.com/Isaac12x/seed-cli">GitHub</a> ·
+                <a href="https://pypi.org/project/seed-cli/">PyPI</a> ·
+                MIT License
+            </p>
+        </footer>
+    </div>
+
+    <script>
+        // Initialize syntax highlighting
+        hljs.highlightAll();
+
+        // Tab switching
+        const tabButtons = document.querySelectorAll('.tab-nav button');
+        const tabContents = document.querySelectorAll('.tab-content');
+
+        tabButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                const tabId = button.dataset.tab;
+
+                // Update buttons
+                tabButtons.forEach(btn => btn.classList.remove('active'));
+                button.classList.add('active');
+
+                // Update content
+                tabContents.forEach(content => {
+                    content.classList.remove('active');
+                    if (content.id === tabId) {
+                        content.classList.add('active');
+                    }
+                });
+            });
+        });
+
+        // Copy to clipboard
+        document.querySelectorAll('.copy-btn').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const code = btn.nextElementSibling.querySelector('code').textContent;
+                try {
+                    await navigator.clipboard.writeText(code);
+                    btn.textContent = 'Copied!';
+                    btn.classList.add('copied');
+                    setTimeout(() => {
+                        btn.textContent = 'Copy';
+                        btn.classList.remove('copied');
+                    }, 2000);
+                } catch (err) {
+                    btn.textContent = 'Failed';
+                    setTimeout(() => btn.textContent = 'Copy', 2000);
+                }
+            });
+        });
+    </script>
+</body>
+</html>

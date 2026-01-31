@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "seed-cli"
-version = "1.0.4"
+version = "1.0.5"
 description = "The perfect pair for the `tree` program. Seed creates, updates and deletes file and folder structures in your codebase."
 requires-python = ">=3.10"
 readme = "README.md"
@@ -35,6 +35,7 @@ classifiers = [
 dependencies = [
   "pyyaml",
   "argcomplete",
+  "requests",
 ]
 
 [project.urls]
@@ -53,6 +54,7 @@ dev = [
     "pre-commit",
     "hypothesis>=6.103.1",
     "hypothesis[numpy]>=6.103.1",
+    "rich",
 ]
 
 
@@ -64,6 +66,12 @@ src = "src"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/seed_cli"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/seed_cli/resources/default_templates" = "seed_cli/resources/default_templates"
+
+[tool.hatch.build.targets.sdist.force-include]
+"src/seed_cli/resources/default_templates" = "src/seed_cli/resources/default_templates"
 
 
 [tool.black]

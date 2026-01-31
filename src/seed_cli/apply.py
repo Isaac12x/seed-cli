@@ -138,6 +138,7 @@ def apply(
             interactive=interactive,
             skip_optional=skip_optional,
             include_optional=include_optional,
+            vars=vars,
         )
     finally:
         if heartbeat:
