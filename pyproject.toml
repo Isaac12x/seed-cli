@@ -35,6 +35,7 @@ classifiers = [
 dependencies = [
   "pyyaml",
   "argcomplete",
+  "requests",
 ]
 
 [project.urls]
@@ -53,6 +54,7 @@ dev = [
     "pre-commit",
     "hypothesis>=6.103.1",
     "hypothesis[numpy]>=6.103.1",
+    "rich",
 ]
 
 
