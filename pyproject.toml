@@ -47,7 +47,7 @@ Issues = "https://github.com/isaac12x/seed-cli/issues"
 image = ["pillow", "pytesseract", "opencv-python", "numpy", "fitz"]
 ui = ["rich"]
 dev = [
-    "black==23.3.0",
+    "black==24.3.0",
     "pytest",
     "pytest-asyncio",
     "pytest-cov",
