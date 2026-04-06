@@ -249,6 +249,18 @@ def test_cli_register_creates_project_template_support_files(tmp_path):
     assert "Registered spec:" in out
 
 
+def test_cli_register_mirrors_plain_tree_spec_without_project_templates(tmp_path):
+    spec = tmp_path / "plain.tree"
+    spec.write_text("src/\n└── main.py\n")
+
+    code, out, err = run(["register", "plain.tree"], tmp_path)
+
+    assert code == 0
+    assert (tmp_path / ".seed" / "templates" / "plain.tree").exists()
+    assert "Registered spec:" in out
+    assert "Registered project template:" not in out
+
+
 def test_cli_create_with_project_template_from_nested_dir(tmp_path):
     (tmp_path / ".git").mkdir()
     spec = tmp_path / "spec.tree"
@@ -267,13 +279,23 @@ def test_cli_create_with_project_template_from_nested_dir(tmp_path):
     nested.mkdir(parents=True)
 
     code, out, err = run(
-        ["create", "--template", ".seed/templates/spec.tree", "name=users"],
+        ["create", "--template", str((tmp_path / ".seed" / "templates" / "spec.tree").resolve()), "name=users"],
         nested,
     )
 
     assert code == 0
     assert (nested / "users" / "api").is_dir()
     assert (nested / "users" / "api" / "route.ts").exists()
+
+
+def test_cli_create_rejects_relative_template_flag_path(tmp_path):
+    spec = tmp_path / "spec.tree"
+    spec.write_text("<name>/\n└── route.ts\n")
+
+    code, out, err = run(["create", "--template", "spec.tree", "users"], tmp_path)
+
+    assert code == 1
+    assert "--template must be a full path" in out
 
 
 def test_cli_apply_cleans_stale_materialized_project_template_dir(tmp_path):
@@ -317,3 +339,20 @@ def test_cli_create_with_registered_project_template(tmp_path):
     assert code == 0
     assert (features_dir / "users" / "api").is_dir()
     assert (features_dir / "users" / "api" / "route.ts").exists()
+
+
+def test_cli_create_finds_project_template_without_flag(tmp_path):
+    template_dir = tmp_path / ".seed" / "templates" / "project"
+    template_dir.mkdir(parents=True)
+    (template_dir / "project.tree").write_text(
+        ".\n"
+        "└── <name>/\n"
+        "    └── api/\n"
+        "        └── route.ts\n"
+    )
+
+    code, out, err = run(["create", "project", "test"], tmp_path)
+
+    assert code == 0
+    assert (tmp_path / "test" / "api").is_dir()
+    assert (tmp_path / "test" / "api" / "route.ts").exists()

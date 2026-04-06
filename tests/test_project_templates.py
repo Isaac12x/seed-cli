@@ -83,8 +83,20 @@ def test_register_spec_project_templates_skips_specs_without_template_children(t
     result = register_spec_project_templates(spec_file, nodes, tmp_path, cleanup_materialized=True)
 
     assert has_template_subtree(nodes) is False
-    assert not (tmp_path / ".seed" / "templates" / "component.tree").exists()
+    assert (tmp_path / ".seed" / "templates" / "component.tree").exists()
+    assert result.mirrored_spec == (tmp_path / ".seed" / "templates" / "component.tree")
+    assert result.project_templates == []
+
+
+def test_register_spec_project_templates_skips_non_tree_spec_without_template_children(tmp_path):
+    spec_file = tmp_path / "component.json"
+    spec_file.write_text('{"entries":[{"path":"features/","type":"dir"}]}')
+
+    _, nodes = parse_spec(str(spec_file), base=tmp_path)
+    result = register_spec_project_templates(spec_file, nodes, tmp_path, cleanup_materialized=True)
+
     assert result.changed is False
+    assert not (tmp_path / ".seed" / "templates" / "component.json").exists()
 
 
 def test_register_spec_project_templates_deletes_materialized_placeholder_dir(tmp_path):
@@ -117,6 +129,20 @@ def test_resolve_project_template_path_uses_top_level_seed(tmp_path):
     template_file.write_text("files/\n└── <name>/\n    └── item.txt\n")
 
     resolved = resolve_project_template_path(".seed/templates/spec.tree", nested)
+
+    assert resolved == template_file
+
+
+def test_resolve_project_template_path_maps_directory_name_to_same_name_tree(tmp_path):
+    project_root = tmp_path / "repo"
+    nested = project_root / "packages" / "app"
+    nested.mkdir(parents=True)
+    (project_root / ".git").mkdir()
+    template_file = project_root / ".seed" / "templates" / "project" / "project.tree"
+    template_file.parent.mkdir(parents=True)
+    template_file.write_text("<name>/\n<name>/item.txt\n")
+
+    resolved = resolve_project_template_path("project", nested)
 
     assert resolved == template_file
 

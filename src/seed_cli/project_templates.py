@@ -242,12 +242,12 @@ def delete_materialized_project_templates(nodes: Iterable["Node"], start: Path) 
 
 
 def register_project_template(spec_path: Path | str, nodes: Iterable["Node"], start: Path) -> Path | None:
-    """Mirror a template-capable .tree spec into the project .seed directory."""
+    """Mirror a .tree spec into the project .seed directory."""
     spec = Path(spec_path).resolve()
     if not spec.is_file():
         return None
 
-    if not has_template_subtree(nodes):
+    if spec.suffix != ".tree":
         return None
 
     seed_dir = get_project_seed_dir(start, create=True)
@@ -295,23 +295,44 @@ def register_spec_project_templates(
 
 def resolve_project_template_path(template_path: str, start: Path) -> Path:
     """Resolve a template path, treating .seed/... as project-root relative."""
+    def resolve_tree_candidate(candidate: Path) -> Path | None:
+        if candidate.is_file():
+            return candidate
+
+        if candidate.is_dir():
+            nested_candidate = candidate / f"{candidate.name}.tree"
+            if nested_candidate.is_file():
+                return nested_candidate
+
+        if candidate.suffix != ".tree":
+            tree_candidate = candidate.with_suffix(".tree")
+            if tree_candidate.is_file():
+                return tree_candidate
+
+        return None
+
     raw = Path(template_path)
     if raw.is_absolute():
-        return raw
+        resolved = resolve_tree_candidate(raw)
+        return resolved or raw
 
     if raw.parts and raw.parts[0] == SEED_DIR_NAME:
         seed_dir = get_project_seed_dir(start)
-        return seed_dir / Path(*raw.parts[1:])
+        candidate = seed_dir / Path(*raw.parts[1:])
+        resolved = resolve_tree_candidate(candidate)
+        return resolved or candidate
+
+    direct_candidate = (start / raw).resolve()
+    resolved = resolve_tree_candidate(direct_candidate)
+    if resolved:
+        return resolved
 
     candidate = get_project_templates_dir(start) / raw
-    if candidate.suffix != ".tree":
-        tree_candidate = candidate.with_suffix(".tree")
-        if tree_candidate.exists():
-            return tree_candidate
-    if candidate.exists():
-        return candidate
+    resolved = resolve_tree_candidate(candidate)
+    if resolved:
+        return resolved
 
-    return (start / raw).resolve()
+    return direct_candidate
 
 
 def iter_registered_project_template_dirs(start: Path) -> Iterator[Path]:

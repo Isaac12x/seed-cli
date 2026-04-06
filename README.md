@@ -65,7 +65,7 @@ seed maintain maintenance.yml --execute
 | --- | --- |
 | `plan` | Parse a spec and generate an execution plan |
 | `apply` | Apply a spec or a saved plan |
-| `register` | Register template-capable specs into project `.seed/` files |
+| `register` | Register `.tree` specs into project `.seed/` files |
 | `sync` | Apply a spec and delete extras |
 | `diff` | Compare a spec with the filesystem |
 | `match` | Modify the filesystem to match a spec, respecting `...` |
@@ -175,10 +175,10 @@ seed create releases.tree version_id=v3 --dry-run
 
 ### Project-Local Templates
 
-Use `seed register` to mirror a template-capable spec into the project-level
-`.seed/templates/` directory and extract nested template subtrees into
-`.seed/templates/project/`. `seed apply <spec>` runs the same registration step
-automatically before execution.
+Use `seed register` to mirror any `.tree` spec into the project-level
+`.seed/templates/` directory. When the spec contains nested template subtrees,
+it also extracts them into `.seed/templates/project/`. `seed apply <spec>` runs
+the same registration step automatically before execution.
 
 ```bash
 seed register releases.tree
