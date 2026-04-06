@@ -34,6 +34,7 @@ from seed_cli.project_templates import (
     complete_registered_project_template_names,
     complete_project_template_paths,
     list_registered_project_templates,
+    register_spec_project_templates,
     resolve_registered_project_template,
     resolve_project_template_path,
 )
@@ -118,13 +119,6 @@ def parse_spec_file(spec_path: str, vars: dict, base: Path, plugins: list, conte
     # parse_any will still apply includes, but that's idempotent
     _, nodes = parse_any(spec_path, text, vars=None, base=base)
 
-    try:
-        from seed_cli.project_templates import register_project_template
-
-        register_project_template(spec, nodes, base)
-    except Exception as exc:
-        log.debug(f"Skipping project template registration for {spec_path}: {exc}")
-
     return spec, nodes
 
 
@@ -187,6 +181,16 @@ def build_parser() -> argparse.ArgumentParser:
     sa.add_argument("--dry-run", action="store_true", help="Show what would be executed without making changes")
     sa.add_argument("--yes", "-y", action="store_true", help="Create all optional items (marked with ?) without prompting")
     sa.add_argument("--skip-optional", action="store_true", help="Skip all optional items (marked with ?) without prompting")
+
+    # register
+    sreg = sub.add_parser(
+        "register",
+        description="Register template-capable specs into project .seed support files and remove stale literal placeholder paths",
+        help="Register project-local templates from a spec",
+    )
+    sreg.add_argument("spec", help="Spec file (.tree, .yaml, .json, .dot, or image)")
+    sreg.add_argument("--base", default=".", help="Base directory (default: current directory)")
+    sreg.add_argument("--vars", action="append", help="Template variables (key=value)")
 
     # sync
     ss = sub.add_parser(
@@ -711,7 +715,31 @@ def main(argv=None) -> int:
         except Exception as e:
             log.error(f"Error {args.cmd}: {e}")
             return 1
-  
+
+    # ---------------- REGISTER ----------------
+    if args.cmd == "register":
+        try:
+            spec, nodes = parse_spec_file(args.spec, vars, base, plugins, context)
+            result = register_spec_project_templates(spec, nodes, base, cleanup_materialized=True)
+
+            if not result.changed:
+                print("No project template subtrees found.")
+                return 0
+
+            if result.mirrored_spec:
+                print(f"Registered spec: {result.mirrored_spec}")
+            for path in result.project_templates:
+                print(f"Registered project template: {path}")
+            for path in result.deleted_paths:
+                print(f"Deleted stale template path: {path}")
+            return 0
+        except Exception as e:
+            log.error(f"Error during register: {e}")
+            if args.debug:
+                import traceback
+                traceback.print_exc()
+            return 1
+
     # ---------------- MAINTAIN ----------------
     if args.cmd == "maintain":
         try:

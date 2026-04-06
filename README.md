@@ -47,6 +47,7 @@ seed apply plan.json
 For direct spec execution:
 
 ```bash
+seed register project.tree
 seed apply project.tree
 seed diff project.tree
 ```
@@ -64,6 +65,7 @@ seed maintain maintenance.yml --execute
 | --- | --- |
 | `plan` | Parse a spec and generate an execution plan |
 | `apply` | Apply a spec or a saved plan |
+| `register` | Register template-capable specs into project `.seed/` files |
 | `sync` | Apply a spec and delete extras |
 | `diff` | Compare a spec with the filesystem |
 | `match` | Modify the filesystem to match a spec, respecting `...` |
@@ -93,6 +95,11 @@ seed apply plan.json
 ```bash
 seed apply dir_structure.tree
 ```
+
+When you apply a spec with template placeholders such as `<name>/`, `seed apply`
+first runs `seed register` semantics: it writes the supporting files under
+`.seed/templates/` and `.seed/templates/project/`, then removes any stale
+literal placeholder paths like `features/<name>/` left behind by older runs.
 
 ### Drift Detection
 
@@ -168,9 +175,15 @@ seed create releases.tree version_id=v3 --dry-run
 
 ### Project-Local Templates
 
-When a parsed spec contains template subtrees, seed mirrors the spec into the
-project-level `.seed/templates/` directory and also extracts nested template
-subtrees into `.seed/templates/project/`.
+Use `seed register` to mirror a template-capable spec into the project-level
+`.seed/templates/` directory and extract nested template subtrees into
+`.seed/templates/project/`. `seed apply <spec>` runs the same registration step
+automatically before execution.
+
+```bash
+seed register releases.tree
+seed apply releases.tree
+```
 
 That lets you create from either a path-based project template:
 

@@ -5,12 +5,13 @@ from seed_cli.project_templates import (
     complete_registered_project_template_names,
     complete_project_template_paths,
     has_template_subtree,
+    register_spec_project_templates,
     resolve_registered_project_template,
     resolve_project_template_path,
 )
 
 
-def test_parse_spec_registers_template_tree_in_project_seed(tmp_path):
+def test_register_spec_project_templates_mirrors_template_tree_in_project_seed(tmp_path):
     spec_dir = tmp_path / "specs"
     spec_dir.mkdir()
     spec_file = spec_dir / "component.tree"
@@ -21,14 +22,16 @@ def test_parse_spec_registers_template_tree_in_project_seed(tmp_path):
         "│       └── route.ts\n"
     )
 
-    parse_spec(str(spec_file), base=tmp_path)
+    _, nodes = parse_spec(str(spec_file), base=tmp_path)
+    result = register_spec_project_templates(spec_file, nodes, tmp_path, cleanup_materialized=True)
 
     registered = tmp_path / ".seed" / "templates" / "specs" / "component.tree"
     assert registered.exists()
     assert registered.read_text() == spec_file.read_text()
+    assert result.mirrored_spec == registered
 
 
-def test_parse_spec_registers_subtree_template_at_template_parent(tmp_path):
+def test_register_spec_project_templates_extracts_subtree_template_at_template_parent(tmp_path):
     spec_file = tmp_path / "component.tree"
     spec_file.write_text(
         ".\n"
@@ -38,7 +41,8 @@ def test_parse_spec_registers_subtree_template_at_template_parent(tmp_path):
         "            └── route.ts\n"
     )
 
-    parse_spec(str(spec_file), base=tmp_path)
+    _, nodes = parse_spec(str(spec_file), base=tmp_path)
+    result = register_spec_project_templates(spec_file, nodes, tmp_path, cleanup_materialized=True)
 
     registered = tmp_path / "features" / ".seed" / "templates" / "project" / "name.tree"
     assert registered.exists()
@@ -48,9 +52,10 @@ def test_parse_spec_registers_subtree_template_at_template_parent(tmp_path):
         "    └── api/\n"
         "        └── route.ts\n"
     )
+    assert registered in result.project_templates
 
 
-def test_parse_json_registers_subtree_template_at_template_parent(tmp_path):
+def test_register_spec_project_templates_handles_json_specs(tmp_path):
     spec_file = tmp_path / "component.json"
     spec_file.write_text(
         "{\n"
@@ -63,20 +68,43 @@ def test_parse_json_registers_subtree_template_at_template_parent(tmp_path):
         "}\n"
     )
 
-    parse_spec(str(spec_file), base=tmp_path)
+    _, nodes = parse_spec(str(spec_file), base=tmp_path)
+    register_spec_project_templates(spec_file, nodes, tmp_path, cleanup_materialized=True)
 
     registered = tmp_path / "features" / ".seed" / "templates" / "project" / "name.tree"
     assert registered.exists()
 
 
-def test_parse_spec_skips_registration_without_template_children(tmp_path):
+def test_register_spec_project_templates_skips_specs_without_template_children(tmp_path):
     spec_file = tmp_path / "component.tree"
     spec_file.write_text("features/\n└── <name>/\n")
 
     _, nodes = parse_spec(str(spec_file), base=tmp_path)
+    result = register_spec_project_templates(spec_file, nodes, tmp_path, cleanup_materialized=True)
 
     assert has_template_subtree(nodes) is False
     assert not (tmp_path / ".seed" / "templates" / "component.tree").exists()
+    assert result.changed is False
+
+
+def test_register_spec_project_templates_deletes_materialized_placeholder_dir(tmp_path):
+    spec_file = tmp_path / "component.tree"
+    spec_file.write_text(
+        ".\n"
+        "└── features/\n"
+        "    └── <name>/\n"
+        "        └── api/\n"
+        "            └── route.ts\n"
+    )
+    stale_dir = tmp_path / "features" / "<name>" / "api"
+    stale_dir.mkdir(parents=True)
+    (stale_dir / "route.ts").write_text("legacy")
+
+    _, nodes = parse_spec(str(spec_file), base=tmp_path)
+    result = register_spec_project_templates(spec_file, nodes, tmp_path, cleanup_materialized=True)
+
+    assert not (tmp_path / "features" / "<name>").exists()
+    assert (tmp_path / "features" / "<name>") in result.deleted_paths
 
 
 def test_resolve_project_template_path_uses_top_level_seed(tmp_path):

@@ -213,7 +213,7 @@ def test_cli_apply_plan_delete_with_dangerous(tmp_path):
     assert not victim.exists()
 
 
-def test_parse_spec_file_registers_project_template(tmp_path):
+def test_parse_spec_file_does_not_register_project_template(tmp_path):
     from seed_cli.cli import parse_spec_file
 
     (tmp_path / ".git").mkdir()
@@ -228,8 +228,25 @@ def test_parse_spec_file_registers_project_template(tmp_path):
     parse_spec_file(str(spec), {}, tmp_path, [], {"base": tmp_path, "plugins": [], "cmd": "plan"})
 
     registered = tmp_path / ".seed" / "templates" / "spec.tree"
-    assert registered.exists()
-    assert registered.read_text() == spec.read_text()
+    assert not registered.exists()
+
+
+def test_cli_register_creates_project_template_support_files(tmp_path):
+    spec = tmp_path / "spec.tree"
+    spec.write_text(
+        ".\n"
+        "└── features/\n"
+        "    └── <name>/\n"
+        "        └── api/\n"
+        "            └── route.ts\n"
+    )
+
+    code, out, err = run(["register", "spec.tree"], tmp_path)
+
+    assert code == 0
+    assert (tmp_path / ".seed" / "templates" / "spec.tree").exists()
+    assert (tmp_path / "features" / ".seed" / "templates" / "project" / "name.tree").exists()
+    assert "Registered spec:" in out
 
 
 def test_cli_create_with_project_template_from_nested_dir(tmp_path):
@@ -242,7 +259,7 @@ def test_cli_create_with_project_template_from_nested_dir(tmp_path):
         "│       └── route.ts\n"
     )
 
-    code, out, err = run(["plan", "spec.tree"], tmp_path)
+    code, out, err = run(["register", "spec.tree"], tmp_path)
     assert code == 0
     assert (tmp_path / ".seed" / "templates" / "spec.tree").exists()
 
@@ -257,6 +274,26 @@ def test_cli_create_with_project_template_from_nested_dir(tmp_path):
     assert code == 0
     assert (nested / "users" / "api").is_dir()
     assert (nested / "users" / "api" / "route.ts").exists()
+
+
+def test_cli_apply_cleans_stale_materialized_project_template_dir(tmp_path):
+    spec = tmp_path / "spec.tree"
+    spec.write_text(
+        ".\n"
+        "└── features/\n"
+        "    └── <name>/\n"
+        "        └── api/\n"
+        "            └── route.ts\n"
+    )
+    stale_dir = tmp_path / "features" / "<name>" / "api"
+    stale_dir.mkdir(parents=True)
+    (stale_dir / "route.ts").write_text("legacy")
+
+    code, out, err = run(["apply", "spec.tree"], tmp_path)
+
+    assert code == 0
+    assert not (tmp_path / "features" / "<name>").exists()
+    assert (tmp_path / "features" / ".seed" / "templates" / "project" / "name.tree").exists()
 
 
 def test_cli_create_with_registered_project_template(tmp_path):

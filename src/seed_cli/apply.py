@@ -25,7 +25,7 @@ from .planning import plan as build_plan, PlanResult
 from .executor import execute_plan
 from .state.local import LocalStateBackend
 from .lock_heartbeat import LockHeartbeat
-from .project_templates import prune_project_template_nodes
+from .project_templates import prune_project_template_nodes, register_spec_project_templates
 from .security import validate_plan_paths
 
 
@@ -88,6 +88,8 @@ def apply(
 
     # Load or build plan
     captured_spec_content: Optional[str] = None
+    registration_result = None
+    nodes = None
     if path.suffix == ".json":
         plan = _load_plan(path)
     else:
@@ -139,6 +141,13 @@ def apply(
         heartbeat.start()
 
     try:
+        if nodes is not None and not dry_run:
+            registration_result = register_spec_project_templates(
+                path,
+                nodes,
+                base,
+                cleanup_materialized=True,
+            )
         result = execute_plan(
             plan,
             base,
@@ -172,6 +181,9 @@ def apply(
         if spec_result:
             result["spec_version"] = spec_result[0]
             result["spec_path"] = str(spec_result[1])
+
+    if registration_result and registration_result.deleted_paths:
+        result["deleted"] += len(registration_result.deleted_paths)
 
     if snapshot_id:
         result["snapshot_id"] = snapshot_id

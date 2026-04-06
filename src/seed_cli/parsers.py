@@ -158,16 +158,7 @@ def parse_spec(
     
     # Handle text files
     text = read_input(spec_path)
-    parsed = parse_any(spec_path, text, vars=vars, base=base, mode=mode)
-
-    try:
-        from .project_templates import register_project_template
-
-        register_project_template(path, parsed[1], base or path.parent)
-    except Exception as exc:
-        log.debug("Skipping project template registration for %s: %s", spec_path, exc)
-
-    return parsed
+    return parse_any(spec_path, text, vars=vars, base=base, mode=mode)
 
 
 _TEMPLATE_VAR_RE = re.compile(r"^<([a-zA-Z_][a-zA-Z0-9_]*)>$")

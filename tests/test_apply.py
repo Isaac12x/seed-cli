@@ -136,4 +136,24 @@ def test_apply_registers_nested_project_template_without_materializing_template_
     assert not (tmp_path / "features" / "<name>").exists()
     assert (tmp_path / "features" / ".seed" / "templates" / "project" / "name.tree").exists()
     assert (tmp_path / ".seed" / "templates" / "spec.tree").exists()
-    assert res["created"] == 0
+    assert res["created"] == 1
+
+
+def test_apply_deletes_stale_materialized_template_subtree_before_execution(tmp_path):
+    spec = tmp_path / "spec.tree"
+    spec.write_text(
+        ".\n"
+        "└── features/\n"
+        "    └── <name>/\n"
+        "        └── api/\n"
+        "            └── route.ts\n"
+    )
+    stale_dir = tmp_path / "features" / "<name>" / "api"
+    stale_dir.mkdir(parents=True)
+    (stale_dir / "route.ts").write_text("legacy")
+
+    res = apply(str(spec), tmp_path, dry_run=False)
+
+    assert not (tmp_path / "features" / "<name>").exists()
+    assert (tmp_path / "features" / ".seed" / "templates" / "project" / "name.tree").exists()
+    assert res["deleted"] == 1

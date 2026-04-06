@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Iterator, List, TYPE_CHECKING
 
@@ -17,6 +18,17 @@ log = get_logger("project_templates")
 SEED_DIR_NAME = ".seed"
 PROJECT_TEMPLATES_DIR_NAME = "templates"
 PROJECT_TEMPLATE_GROUP = "project"
+
+
+@dataclass
+class ProjectTemplateRegistrationResult:
+    mirrored_spec: Path | None
+    project_templates: list[Path]
+    deleted_paths: list[Path]
+
+    @property
+    def changed(self) -> bool:
+        return bool(self.mirrored_spec or self.project_templates or self.deleted_paths)
 
 
 def _iter_ancestors(start: Path) -> List[Path]:
@@ -111,7 +123,7 @@ def _template_subtree_roots(nodes: Iterable["Node"]) -> list[Path]:
     )
 
 
-def _iter_template_subtrees(nodes: Iterable["Node"]) -> Iterator[tuple[str, Path, list["Node"]]]:
+def _iter_template_subtrees(nodes: Iterable["Node"]) -> Iterator[tuple[str, Path, Path, list["Node"]]]:
     node_list = list(nodes)
     template_roots = set(_template_subtree_roots(node_list))
     for node in node_list:
@@ -126,7 +138,7 @@ def _iter_template_subtrees(nodes: Iterable["Node"]) -> Iterator[tuple[str, Path
             if child.relpath == template_path or template_path in child.relpath.parents
         ]
 
-        yield annotation.split(":", 1)[1], template_path.parent, subtree
+        yield annotation.split(":", 1)[1], template_path, template_path.parent, subtree
 
 
 def prune_project_template_nodes(nodes: Iterable["Node"]) -> list["Node"]:
@@ -185,7 +197,7 @@ def _render_tree_text(nodes: Iterable["Node"]) -> str:
 def _write_project_template_subtrees(nodes: Iterable["Node"], start: Path) -> list[Path]:
     written: list[Path] = []
 
-    for template_name, parent_relpath, subtree in _iter_template_subtrees(nodes):
+    for template_name, _, parent_relpath, subtree in _iter_template_subtrees(nodes):
         parent_dir = start.resolve() if parent_relpath == Path(".") else (start.resolve() / parent_relpath)
         templates_dir = get_local_project_templates_dir(parent_dir, create=True)
         destination = templates_dir / f"{template_name}.tree"
@@ -198,6 +210,37 @@ def _write_project_template_subtrees(nodes: Iterable["Node"], start: Path) -> li
     return written
 
 
+def materialized_project_template_paths(nodes: Iterable["Node"], start: Path) -> list[Path]:
+    """Return literal template placeholder paths that should not exist after registration."""
+    materialized_paths: list[Path] = []
+    seen: set[Path] = set()
+
+    for _, template_path, _, _ in _iter_template_subtrees(nodes):
+        candidate = (start.resolve() / template_path).resolve()
+        if candidate not in seen:
+            seen.add(candidate)
+            materialized_paths.append(candidate)
+
+    return materialized_paths
+
+
+def delete_materialized_project_templates(nodes: Iterable["Node"], start: Path) -> list[Path]:
+    """Delete literal placeholder directories/files such as <name>/ created by older apply flows."""
+    deleted: list[Path] = []
+
+    for target in materialized_project_template_paths(nodes, start):
+        if not target.exists():
+            continue
+        if target.is_dir():
+            shutil.rmtree(target)
+        else:
+            target.unlink()
+        deleted.append(target)
+        log.debug("Deleted materialized project template path %s", target)
+
+    return deleted
+
+
 def register_project_template(spec_path: Path | str, nodes: Iterable["Node"], start: Path) -> Path | None:
     """Mirror a template-capable .tree spec into the project .seed directory."""
     spec = Path(spec_path).resolve()
@@ -206,8 +249,6 @@ def register_project_template(spec_path: Path | str, nodes: Iterable["Node"], st
 
     if not has_template_subtree(nodes):
         return None
-
-    _write_project_template_subtrees(nodes, start)
 
     seed_dir = get_project_seed_dir(start, create=True)
     try:
@@ -231,6 +272,25 @@ def register_project_template(spec_path: Path | str, nodes: Iterable["Node"], st
     shutil.copy2(spec, destination)
     log.debug("Registered project template %s -> %s", spec, destination)
     return destination
+
+
+def register_spec_project_templates(
+    spec_path: Path | str,
+    nodes: Iterable["Node"],
+    start: Path,
+    *,
+    cleanup_materialized: bool = False,
+) -> ProjectTemplateRegistrationResult:
+    """Register a template-capable spec and optionally clean up stale literal template paths."""
+    node_list = list(nodes)
+    mirrored_spec = register_project_template(spec_path, node_list, start)
+    project_templates = _write_project_template_subtrees(node_list, start) if has_template_subtree(node_list) else []
+    deleted_paths = delete_materialized_project_templates(node_list, start) if cleanup_materialized else []
+    return ProjectTemplateRegistrationResult(
+        mirrored_spec=mirrored_spec,
+        project_templates=project_templates,
+        deleted_paths=deleted_paths,
+    )
 
 
 def resolve_project_template_path(template_path: str, start: Path) -> Path:

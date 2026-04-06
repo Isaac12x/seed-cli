@@ -474,7 +474,7 @@ seed plan project.tree --dot > plan.dot</code></pre>
 
             <div class="command-card">
                 <h4>seed apply &lt;spec-or-plan&gt;</h4>
-                <p>Apply a spec directly or execute a previously saved plan. Optional items can be auto-created or skipped in bulk.</p>
+                <p>Apply a spec directly or execute a previously saved plan. When applying a spec, seed also registers project-local templates and removes stale literal placeholder paths from older runs.</p>
                 <div class="options">
                     <code>--base BASE</code> base directory (default: current directory)<br>
                     <code>--dangerous</code> allow dangerous plan steps when needed<br>
@@ -489,6 +489,20 @@ seed plan project.tree --dot > plan.dot</code></pre>
 seed apply plan.json
 seed apply project.tree --base ./myproject
 seed apply project.tree --dry-run</code></pre>
+            </div>
+
+            <div class="command-card">
+                <h4>seed register &lt;spec&gt;</h4>
+                <p>Register template-capable specs into project <code>.seed</code> support files and remove stale literal placeholder paths such as <code>&lt;name&gt;/</code>.</p>
+                <div class="options">
+                    <code>--base BASE</code> base directory (default: current directory)<br>
+                    <code>--vars VARS</code> template variables (<code>key=value</code>)
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash">seed register project.tree
+seed register project.tree --base ./myproject</code></pre>
             </div>
 
             <div class="command-card">
@@ -758,10 +772,11 @@ seed templates remove python-package</code></pre>
             <hr>
 
             <h3>Project-Local Templates</h3>
-            <p>When a parsed spec contains template subtrees, seed mirrors template-capable specs into <code>.seed/templates/</code> and also extracts nested project templates into <code>.seed/templates/project/</code>.</p>
+            <p>Run <code>seed register</code> to mirror template-capable specs into <code>.seed/templates/</code> and extract nested project templates into <code>.seed/templates/project/</code>. <code>seed apply &lt;spec&gt;</code> runs the same registration step automatically.</p>
             <div class="code-block">
                 <button class="copy-btn">Copy</button>
-                <pre><code class="language-bash">seed create --template .seed/templates/releases.tree version_id=v3
+                <pre><code class="language-bash">seed register releases.tree
+seed create --template .seed/templates/releases.tree version_id=v3
 seed create --project version_id version_id=v3</code></pre>
             </div>
 
