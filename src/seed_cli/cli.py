@@ -4,7 +4,9 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+import re
 
+from seed_cli import __version__
 from seed_cli.logging import setup_logging, get_logger
 from seed_cli.ui import Summary, render_summary, render_list
 from seed_cli.parsers import read_input, parse_any
@@ -17,6 +19,7 @@ from seed_cli.exporter import (
     export_plan,
     export_dot,
 )
+from seed_cli.maintenance import build_maintenance_plan, execute_maintenance_plan
 from seed_cli.planning import plan as build_plan
 from seed_cli.diff import diff
 from seed_cli.apply import apply
@@ -27,6 +30,13 @@ from seed_cli.image import read_tree
 from seed_cli.hooks import run_hooks, load_filesystem_hooks
 from seed_cli.templates import install_git_hook
 from seed_cli.plugins import load_plugins
+from seed_cli.project_templates import (
+    complete_registered_project_template_names,
+    complete_project_template_paths,
+    list_registered_project_templates,
+    resolve_registered_project_template,
+    resolve_project_template_path,
+)
 
 log = get_logger("cli")
 DEFAULT_TTL = 30
@@ -39,6 +49,33 @@ def parse_vars(values):
             k, val = v.split("=", 1)
             out[k] = val
     return out
+
+
+def _project_template_completer(prefix, parsed_args, **kwargs):
+    base = Path(getattr(parsed_args, "base", ".")).resolve()
+    return complete_project_template_paths(prefix, base)
+
+
+def _registered_project_template_completer(prefix, parsed_args, **kwargs):
+    base = Path(getattr(parsed_args, "base", ".")).resolve()
+    return complete_registered_project_template_names(prefix, base)
+
+
+def _single_template_var_name(spec_path: str, base: Path) -> str | None:
+    from seed_cli.parsers import parse_spec
+
+    _, nodes = parse_spec(spec_path, base=base)
+    names = sorted({
+        match.group(1)
+        for node in nodes
+        for annotation in [node.annotation or ""]
+        if annotation.startswith("template:")
+        for match in [re.match(r"template:([a-zA-Z_][a-zA-Z0-9_]*)$", annotation)]
+        if match
+    })
+    if len(names) == 1:
+        return names[0]
+    return None
 
 
 def parse_spec_file(spec_path: str, vars: dict, base: Path, plugins: list, context: dict) -> tuple[Path, list]:
@@ -80,6 +117,14 @@ def parse_spec_file(spec_path: str, vars: dict, base: Path, plugins: list, conte
     # Parse with vars=None since we've already applied them
     # parse_any will still apply includes, but that's idempotent
     _, nodes = parse_any(spec_path, text, vars=None, base=base)
+
+    try:
+        from seed_cli.project_templates import register_project_template
+
+        register_project_template(spec, nodes, base)
+    except Exception as exc:
+        log.debug(f"Skipping project template registration for {spec_path}: {exc}")
+
     return spec, nodes
 
 
@@ -87,6 +132,11 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         "seed",
         description="Terraform-inspired filesystem orchestration tool",
+    )
+    p.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
     )
     p.add_argument("--verbose", action="store_true", help="Enable verbose logging")
     p.add_argument("--debug", action="store_true", help="Enable debug logging")
@@ -182,16 +232,45 @@ def build_parser() -> argparse.ArgumentParser:
     sm.add_argument("--skip-optional", action="store_true",
                     help="Skip all optional items (marked with ?) without prompting")
 
+    # maintain - orchestrate repository/service maintenance
+    smaint = sub.add_parser(
+        "maintain",
+        description="Build or execute a maintenance plan for repositories, services, and systems",
+        help="Maintain repositories and systems from manifests",
+    )
+    smaint.add_argument(
+        "manifest",
+        help="Maintenance manifest file or directory to scan for project.yml/service.yml/maintenance.yml",
+    )
+    smaint.add_argument(
+        "--execute",
+        action="store_true",
+        help="Run the maintenance commands. Without this flag, seed only prints the plan.",
+    )
+
     # create - instantiate template structures
     sc_create = sub.add_parser(
         "create",
         description="Create a new instance of a template directory structure. "
-                    "Use with specs containing <varname>/ template patterns.",
+                    "Use with specs containing <varname>/ template patterns, "
+                    "or with registered project templates under .seed/.",
         help="Create new instance of template structure",
     )
-    sc_create.add_argument("spec", help="Spec file containing template")
-    sc_create.add_argument("values", nargs="+",
-                           help="Template values as varname=value (e.g., version_id=v3)")
+    template_arg = sc_create.add_argument(
+        "--template",
+        help="Project template path, typically under .seed/templates/",
+    )
+    template_arg.completer = _project_template_completer
+    project_arg = sc_create.add_argument(
+        "--project",
+        help="Registered project template name under .seed/templates/project/",
+    )
+    project_arg.completer = _registered_project_template_completer
+    sc_create.add_argument(
+        "create_args",
+        nargs="*",
+        help="Spec file followed by varname=value pairs, or only varname=value pairs with --template/--project",
+    )
     sc_create.add_argument("--base", default=".", help="Base directory (default: current directory)")
     sc_create.add_argument("--dry-run", action="store_true",
                            help="Preview what would be created")
@@ -405,6 +484,16 @@ def build_parser() -> argparse.ArgumentParser:
     tpl_use.add_argument("--version", "-v", help="Version to use (default: current)")
     tpl_use.add_argument("--base", default=".", help="Base directory (default: current directory)")
     tpl_use.add_argument("--vars", action="append", help="Template variables (key=value)")
+    tpl_use.add_argument("--data-file", help="JSON/YAML file with template variables")
+    tpl_use.add_argument("--defaults", action="store_true",
+                         help="Use defaults for unanswered template questions")
+    tpl_use.add_argument("--non-interactive", action="store_true",
+                         help="Fail if required template variables are missing")
+    tpl_use.add_argument("--answers-file", help="Write resolved template variables to this file")
+    tpl_use.add_argument("--unsafe", action="store_true",
+                         help="Allow execution of template-defined tasks (_tasks)")
+    tpl_use.add_argument("--overwrite", action="store_true",
+                         help="Overwrite existing files when applying template content")
     tpl_use.add_argument("--yes", "-y", action="store_true", help="Apply without prompting")
     tpl_use.add_argument("--dry-run", action="store_true", help="Show plan without applying")
 
@@ -486,8 +575,12 @@ def main(argv=None) -> int:
     parser = build_parser()
 
     # Enable tab completion (requires: activate-global-python-argcomplete)
-    import argcomplete
-    argcomplete.autocomplete(parser)
+    try:
+        import argcomplete
+    except ImportError:
+        argcomplete = None
+    if argcomplete is not None:
+        argcomplete.autocomplete(parser)
 
     args = parser.parse_args(argv or sys.argv[1:])
     
@@ -570,10 +663,16 @@ def main(argv=None) -> int:
                 result = apply(
                     args.spec,
                     base,
+                    dangerous=args.dangerous,
                     plugins=plugins,
                     dry_run=args.dry_run,
+                    vars=vars,
+                    ignore=args.ignore,
+                    targets=args.targets,
+                    target_mode=args.target_mode,
                     include_optional=args.yes,
                     skip_optional=args.skip_optional,
+                    step_hooks=hooks,
                 )
             else:
                 # For sync, --dangerous is required unless --dry-run is used
@@ -585,8 +684,14 @@ def main(argv=None) -> int:
                     base,
                     dangerous=args.dangerous,
                     dry_run=args.dry_run,
+                    vars=vars,
+                    ignore=args.ignore,
+                    targets=args.targets,
+                    target_mode=args.target_mode,
                     include_optional=args.yes,
                     skip_optional=args.skip_optional,
+                    plugins=plugins,
+                    step_hooks=hooks,
                 )
 
             run_hooks(hooks, f"post_{args.cmd}", strict=True, cwd=base)
@@ -607,6 +712,30 @@ def main(argv=None) -> int:
             log.error(f"Error {args.cmd}: {e}")
             return 1
   
+    # ---------------- MAINTAIN ----------------
+    if args.cmd == "maintain":
+        try:
+            plan = build_maintenance_plan(args.manifest)
+            if not args.execute:
+                print("DRY RUN - No maintenance commands will be executed\n")
+                print(plan.to_text())
+                return 0
+
+            result = execute_maintenance_plan(plan, dry_run=False)
+            print(plan.to_text())
+            print()
+            print("Maintenance summary:")
+            print(f"Checked: {result['checked']}")
+            print(f"Executed: {result['executed']}")
+            print(f"Skipped: {result['skipped']}")
+            return 0
+        except Exception as e:
+            log.error(f"Error during maintain: {e}")
+            if args.debug:
+                import traceback
+                traceback.print_exc()
+            return 1
+
     # ---------------- DIFF ----------------
     if args.cmd == "diff":
         _, nodes = parse_spec_file(args.spec, vars, base, plugins, context)
@@ -628,6 +757,7 @@ def main(argv=None) -> int:
             return 1
 
         try:
+            match_hooks = plugins + load_filesystem_hooks(base / "hooks")
             if args.dry_run:
                 # Show plan without executing
                 plan = match_plan(
@@ -653,6 +783,8 @@ def main(argv=None) -> int:
                     target_mode=args.target_mode,
                     include_optional=args.yes,
                     skip_optional=args.skip_optional,
+                    plugins=plugins,
+                    step_hooks=match_hooks,
                 )
                 # Extract extra fields before creating Summary
                 snapshot_id = result.pop("snapshot_id", None)
@@ -677,10 +809,65 @@ def main(argv=None) -> int:
     if args.cmd == "create":
         from seed_cli.match import create_from_template
 
+        create_args = list(getattr(args, "create_args", []))
+        if getattr(args, "template", None) and getattr(args, "project", None):
+            print("Error: use either --template or --project, not both")
+            return 1
+
+        if getattr(args, "template", None):
+            if not create_args:
+                print("Error: provide at least one template value as varname=value")
+                return 1
+            resolved_template = resolve_project_template_path(args.template, base)
+            if not resolved_template.exists():
+                print(f"Error: Template not found: {args.template}")
+                return 1
+            if resolved_template.is_dir():
+                print(f"Error: Template path must point to a .tree file: {args.template}")
+                return 1
+            spec_source = str(resolved_template)
+            raw_values = create_args
+        elif getattr(args, "project", None):
+            raw_values = create_args
+            try:
+                resolved_template = resolve_registered_project_template(args.project, base)
+                spec_source = str(resolved_template)
+            except FileNotFoundError:
+                visible_templates = list_registered_project_templates(base)
+                if raw_values or len(visible_templates) != 1:
+                    print(f"Error: Project template not found: {args.project}")
+                    return 1
+
+                resolved_template = visible_templates[0]
+                spec_source = str(resolved_template)
+                var_name = _single_template_var_name(spec_source, base)
+                if not var_name:
+                    print(
+                        "Error: Could not infer which template variable to populate. "
+                        "Provide varname=value explicitly."
+                    )
+                    return 1
+                raw_values = [f"{var_name}={args.project}"]
+        else:
+            if not create_args:
+                print("Error: provide a spec file or use --template")
+                return 1
+            spec_source = create_args[0]
+            raw_values = create_args[1:]
+            if not raw_values:
+                print("Error: provide at least one template value as varname=value")
+                return 1
+
         # Parse template values
         template_values = {}
-        for val in args.values:
+        implicit_var_name = None
+        if getattr(args, "project", None):
+            implicit_var_name = _single_template_var_name(spec_source, base)
+        for val in raw_values:
             if "=" not in val:
+                if implicit_var_name:
+                    template_values[implicit_var_name] = val
+                    continue
                 print(f"Error: Invalid value format '{val}'. Use varname=value")
                 return 1
             k, v = val.split("=", 1)
@@ -688,7 +875,7 @@ def main(argv=None) -> int:
 
         try:
             result = create_from_template(
-                args.spec,
+                spec_source,
                 base,
                 template_values,
                 dry_run=args.dry_run,
@@ -1009,6 +1196,7 @@ def main(argv=None) -> int:
             get_template,
             get_template_spec_path,
             get_template_content_dir,
+            get_template_config_path,
             add_template,
             add_local_template,
             remove_template,
@@ -1019,6 +1207,17 @@ def main(argv=None) -> int:
             lock_template,
             unlock_template,
             parse_github_url,
+        )
+        from seed_cli.scaffold import (
+            load_data_file,
+            load_template_config,
+            resolve_template_vars,
+            template_tasks,
+            template_exclude,
+            template_skip_if_exists,
+            template_answers_file,
+            write_answers,
+            run_template_tasks,
         )
         import time as time_module
         from datetime import datetime
@@ -1147,9 +1346,15 @@ def main(argv=None) -> int:
             name = args.name
             version = getattr(args, "version", None)
             use_base = Path(getattr(args, "base", ".")).resolve()
-            use_vars = parse_vars(getattr(args, "vars", []))
+            cli_vars = parse_vars(getattr(args, "vars", []))
             yes = getattr(args, "yes", False)
             dry_run = getattr(args, "dry_run", False)
+            data_file = getattr(args, "data_file", None)
+            defaults = getattr(args, "defaults", False)
+            non_interactive = getattr(args, "non_interactive", False)
+            answers_file_arg = getattr(args, "answers_file", None)
+            unsafe = getattr(args, "unsafe", False)
+            overwrite = getattr(args, "overwrite", False)
 
             # Get template spec path
             spec_path = get_template_spec_path(name, version)
@@ -1166,14 +1371,35 @@ def main(argv=None) -> int:
             print()
 
             try:
+                content_dir = get_template_content_dir(name, version)
+                config_path = get_template_config_path(name, version)
+                config = load_template_config(config_path)
+                data_vars = load_data_file(data_file)
+                use_vars = resolve_template_vars(
+                    config=config,
+                    cli_vars=cli_vars,
+                    data_vars=data_vars,
+                    defaults=defaults,
+                    non_interactive=non_interactive,
+                )
+                exclude_patterns = template_exclude(config)
+                skip_existing_patterns = template_skip_if_exists(config)
+                tasks = template_tasks(config)
+                answers_file = template_answers_file(config, answers_file_arg)
+                local_context = {
+                    **context,
+                    "base": use_base,
+                    "cmd": "templates_use",
+                }
+
                 # Parse spec and build plan
-                _, nodes = parse_spec_file(str(spec_path), use_vars, use_base, plugins, context)
+                _, nodes = parse_spec_file(str(spec_path), use_vars, use_base, plugins, local_context)
 
                 for p in plugins:
-                    p.after_parse(nodes, context)
+                    p.after_parse(nodes, local_context)
 
                 for p in plugins:
-                    p.before_plan(nodes, context)
+                    p.before_plan(nodes, local_context)
 
                 plan = build_plan(
                     nodes,
@@ -1182,13 +1408,19 @@ def main(argv=None) -> int:
                     allow_delete=False,
                     targets=args.targets,
                     target_mode=args.target_mode,
+                    include_extras=False,
                 )
 
                 for p in plugins:
-                    p.after_plan(plan, context)
+                    p.after_plan(plan, local_context)
 
                 # Show plan
                 print(plan.to_text())
+                if tasks:
+                    if unsafe:
+                        print(f"\nTemplate tasks: {len(tasks)} (will run after apply)")
+                    else:
+                        print(f"\nTemplate tasks: {len(tasks)} (skipped; use --unsafe to execute)")
 
                 if dry_run:
                     print("\nDRY RUN - No changes applied")
@@ -1201,21 +1433,47 @@ def main(argv=None) -> int:
                         print("Aborted.")
                         return 0
 
-                # Resolve content directory for template files
-                content_dir = get_template_content_dir(name, version)
+                hooks = plugins + load_filesystem_hooks(use_base / "hooks")
+                run_hooks(hooks, "pre_apply", cwd=use_base, strict=True)
 
                 # Apply the template
                 result = apply(
                     str(spec_path),
                     use_base,
+                    dangerous=False,
                     plugins=plugins,
                     dry_run=False,
+                    force=overwrite,
                     vars=use_vars,
                     template_dir=content_dir,
                     ignore=args.ignore,
                     targets=args.targets,
                     target_mode=args.target_mode,
+                    step_hooks=hooks,
+                    template_exclude=exclude_patterns,
+                    template_skip_if_exists=skip_existing_patterns,
                 )
+                run_hooks(hooks, "post_apply", strict=True, cwd=use_base)
+
+                executed_tasks = run_template_tasks(
+                    tasks,
+                    vars_dict=use_vars,
+                    cwd=use_base,
+                    unsafe=unsafe,
+                )
+
+                if answers_file:
+                    answers_path = (use_base / answers_file).resolve()
+                    try:
+                        answers_path.relative_to(use_base)
+                    except ValueError:
+                        raise RuntimeError(f"Answers file escapes base directory: {answers_file}")
+                    write_answers(answers_path, use_vars)
+                    print(f"Answers written: {answers_path}")
+                if executed_tasks:
+                    print("\nExecuted template tasks:")
+                    for cmd in executed_tasks:
+                        print(f"  {cmd}")
 
                 # Extract extra fields before creating Summary
                 snapshot_id = result.pop("snapshot_id", None)

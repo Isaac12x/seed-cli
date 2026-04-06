@@ -35,6 +35,7 @@ from .planning import plan as build_plan, PlanResult, PlanStep, DEFAULT_IGNORE, 
 from .executor import execute_plan
 from .state.local import LocalStateBackend
 from .lock_heartbeat import LockHeartbeat
+from .security import validate_plan_paths
 
 _TEMPLATE_PATTERN = re.compile(r"<[a-zA-Z_][a-zA-Z0-9_]*>")
 
@@ -275,6 +276,8 @@ def match(
     interactive: bool = True,
     skip_optional: bool = False,
     include_optional: bool = False,
+    plugins: Optional[list[object]] = None,
+    step_hooks: Optional[list[object]] = None,
 ) -> dict:
     """Match filesystem to spec.
 
@@ -308,6 +311,8 @@ def match(
         )
 
     base = base.resolve()
+    plugins = plugins or []
+    step_hooks = step_hooks or []
 
     # Parse spec
     from .parsers import parse_spec
@@ -338,6 +343,16 @@ def match(
 
     # Filter out deletions for extras-allowed directories
     plan = _filter_plan_for_extras(plan, extras_allowed)
+    validate_plan_paths(plan, base)
+
+    context = {
+        "base": base,
+        "plan": plan,
+        "plugins": plugins,
+        "cmd": "match",
+    }
+    for p in plugins:
+        p.before_build(plan, context)
 
     # Create snapshot before making changes
     snapshot_id = None
@@ -369,15 +384,20 @@ def match(
             dry_run=dry_run,
             gitkeep=gitkeep,
             template_dir=template_dir,
+            plugins=plugins,
             interactive=interactive,
             skip_optional=skip_optional,
             include_optional=include_optional,
+            step_hooks=step_hooks,
         )
     finally:
         if heartbeat:
             heartbeat.stop()
         if backend and lock_id:
             backend.release_lock(lock_id)
+
+    for p in plugins:
+        p.after_build(context)
 
     # Capture versioned spec after successful execution
     if not dry_run:
@@ -516,5 +536,6 @@ def match_plan(
         targets=targets,
         target_mode=target_mode,
     )
-
-    return _filter_plan_for_extras(plan, extras_allowed)
+    plan = _filter_plan_for_extras(plan, extras_allowed)
+    validate_plan_paths(plan, base)
+    return plan

@@ -4,6 +4,9 @@ SPEC.md
 CLI Directory Tree Seeder.md
 CLI Directory Tree Seeder.pdf
 
+examples/
+data/
+
 .DS_Store
 vscode-extension/
 
@@ -12,7 +15,7 @@ vscode-extension/
 *.tree
 err-*.txt
 # Byte-compiled / optimized / DLL files
-__pycache__/
+*__pycache__/*
 *.py[cod]
 *$py.class
 

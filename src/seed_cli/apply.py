@@ -25,6 +25,8 @@ from .planning import plan as build_plan, PlanResult
 from .executor import execute_plan
 from .state.local import LocalStateBackend
 from .lock_heartbeat import LockHeartbeat
+from .project_templates import prune_project_template_nodes
+from .security import validate_plan_paths
 
 
 def _load_plan(path: Path) -> PlanResult:
@@ -48,7 +50,7 @@ def apply(
     base: Path,
     *,
     dangerous: bool = False,
-    plugins: list[SeedPlugin] = [],
+    plugins: Optional[list[SeedPlugin]] = None,
     force: bool = False,
     dry_run: bool = False,
     gitkeep: bool = False,
@@ -66,6 +68,9 @@ def apply(
     interactive: bool = True,
     skip_optional: bool = False,
     include_optional: bool = False,
+    step_hooks: Optional[list[object]] = None,
+    template_exclude: Optional[list[str]] = None,
+    template_skip_if_exists: Optional[list[str]] = None,
 ) -> dict:
     """Apply a spec or plan.
 
@@ -78,22 +83,29 @@ def apply(
     base = base.resolve()
     path = Path(spec_or_plan_path)
     plugins = plugins or []
+    step_hooks = step_hooks or []
 
 
     # Load or build plan
+    captured_spec_content: Optional[str] = None
     if path.suffix == ".json":
         plan = _load_plan(path)
     else:
+        from .capture import to_tree_text
         from .parsers import parse_spec
         _, nodes = parse_spec(spec_or_plan_path, vars=vars, base=base)
+        captured_spec_content = to_tree_text(nodes)
+        nodes_for_plan = prune_project_template_nodes(nodes)
         plan = build_plan(
-            nodes,
+            nodes_for_plan,
             base,
             ignore=ignore,
             allow_delete=allow_delete,
             targets=targets,
             target_mode=target_mode,
+            include_extras=allow_delete,
         )
+    validate_plan_paths(plan, base)
 
     context = {
         "base": base,
@@ -135,10 +147,14 @@ def apply(
             dry_run=dry_run,
             gitkeep=gitkeep,
             template_dir=template_dir,
+            plugins=plugins,
             interactive=interactive,
             skip_optional=skip_optional,
             include_optional=include_optional,
             vars=vars,
+            step_hooks=step_hooks,
+            template_exclude=template_exclude,
+            template_skip_if_exists=template_skip_if_exists,
         )
     finally:
         if heartbeat:
@@ -152,7 +168,7 @@ def apply(
     # Capture versioned spec after successful execution
     if not dry_run:
         from .spec_history import capture_spec
-        spec_result = capture_spec(base, ignore=ignore)
+        spec_result = capture_spec(base, source_spec=captured_spec_content, ignore=ignore)
         if spec_result:
             result["spec_version"] = spec_result[0]
             result["spec_path"] = str(spec_result[1])

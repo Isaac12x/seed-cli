@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>seed-cli - Terraform for your filesystem</title>
+    <title>seed-cli - Filesystem orchestration, templating, and maintenance</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/bash.min.js"></script>
@@ -355,12 +355,12 @@
                 <img src="https://raw.githubusercontent.com/Isaac12x/seed-cli/master/logo.png" alt="seed-cli logo">
                 <h1>seed-cli</h1>
             </div>
-            <p>Declarative filesystem management for developers</p>
+            <p>Spec-driven filesystem orchestration, scaffolding, and maintenance</p>
         </header>
 
         <nav class="tab-nav">
             <button class="active" data-tab="overview">Overview</button>
-            <button data-tab="commands">Core Commands</button>
+            <button data-tab="commands">Commands</button>
             <button data-tab="sync">Sync & Match</button>
             <button data-tab="syntax">Spec Syntax</button>
             <button data-tab="templates">Templates</button>
@@ -369,31 +369,31 @@
             <button data-tab="utils">Utilities</button>
         </nav>
 
-        <!-- Overview Tab (merged with Quick Start) -->
+        <!-- Overview Tab -->
         <section id="overview" class="tab-content active">
             <div class="hero">
                 <img src="https://raw.githubusercontent.com/Isaac12x/seed-cli/master/logo.png" alt="seed-cli">
-                <h2>Terraform for your filesystem</h2>
-                <p class="tagline">Define, version, and replicate directory structures declaratively</p>
+                <h2>Terraform for directory trees, plus scaffolding and maintenance</h2>
+                <p class="tagline">Capture, plan, apply, scaffold, sync, and maintain filesystem state declaratively</p>
                 <p style="margin-top: 16px;"><a href="recipes.html" style="color: var(--accent); text-decoration: none; border: 1px solid var(--border); padding: 8px 16px; border-radius: 6px;">Browse Recipes &rarr;</a></p>
             </div>
 
             <div class="features">
                 <div class="feature">
-                    <h4>Declarative</h4>
-                    <p>Define your filesystem structure in simple, readable spec files</p>
+                    <h4>Immutable Plans</h4>
+                    <p>Export plans to JSON, review them, then apply the exact plan later.</p>
                 </div>
                 <div class="feature">
-                    <h4>Snapshots</h4>
-                    <p>Capture and restore directory states at any point in time</p>
+                    <h4>Scaffolding</h4>
+                    <p>Use reusable templates, content sources, and Copier-style template config.</p>
                 </div>
                 <div class="feature">
-                    <h4>Versioning</h4>
-                    <p>Track changes, lock versions, and safely upgrade structures</p>
+                    <h4>Maintenance</h4>
+                    <p>Plan or execute repository, service, and system upkeep from manifests.</p>
                 </div>
                 <div class="feature">
-                    <h4>Templates</h4>
-                    <p>Reusable specs with variables for consistent project scaffolding</p>
+                    <h4>History & Locks</h4>
+                    <p>Snapshots, spec history, structure locking, and state locks keep changes auditable.</p>
                 </div>
             </div>
 
@@ -404,162 +404,156 @@
             <h3>1. Install</h3>
             <div class="code-block">
                 <button class="copy-btn">Copy</button>
-                <pre><code class="language-bash">pip install seed-cli</code></pre>
+                <pre><code class="language-bash">pip install seed-cli
+pip install "seed-cli[image]"   # OCR/image parsing
+pip install "seed-cli[ui]"      # rich terminal output</code></pre>
             </div>
 
-            <h3>2. Capture existing structure</h3>
+            <h3>2. Capture and plan</h3>
             <div class="code-block">
                 <button class="copy-btn">Copy</button>
-                <pre><code class="language-bash">seed capture --out project.tree</code></pre>
+                <pre><code class="language-bash">seed capture --out project.tree
+seed plan project.tree --out plan.json</code></pre>
             </div>
 
-            <h3>3. Preview changes</h3>
+            <h3>3. Apply the saved plan</h3>
             <div class="code-block">
                 <button class="copy-btn">Copy</button>
-                <pre><code class="language-bash">seed plan project.tree</code></pre>
+                <pre><code class="language-bash">seed apply plan.json</code></pre>
             </div>
 
-            <h3>4. Apply the spec</h3>
+            <h3>4. Maintain repositories or services</h3>
             <div class="code-block">
                 <button class="copy-btn">Copy</button>
-                <pre><code class="language-bash">seed apply project.tree</code></pre>
+                <pre><code class="language-bash">seed maintain maintenance.yml
+seed maintain maintenance.yml --execute</code></pre>
             </div>
+
+            <h3>Highlights</h3>
+            <ul>
+                <li>Supports <code>.tree</code>, YAML, JSON, DOT, image OCR, and stdin-driven specs.</li>
+                <li>Template variables work in directory names, filenames, and file contents.</li>
+                <li>Built-in templates include <code>fastapi</code>, <code>python-package</code>, and <code>node-typescript</code>.</li>
+                <li>Template tasks are gated behind <code>--unsafe</code> and answers files stay inside the target base directory.</li>
+            </ul>
 
             <h3>Global Options</h3>
             <p>Available on all commands:</p>
             <div class="code-block">
                 <button class="copy-btn">Copy</button>
-                <pre><code class="language-bash">seed [command] --verbose          # Enable verbose logging
-seed [command] --debug            # Enable debug logging
-seed [command] --ignore PATTERN   # Extra ignore patterns (glob)
-seed [command] --targets PATTERN  # Extra targets (glob)
-seed [command] --target-mode {prefix,exact}  # Target matching mode</code></pre>
+                <pre><code class="language-bash">seed [command] --verbose          # enable verbose logging
+seed [command] --debug            # enable debug logging
+seed [command] --ignore PATTERN   # extra ignore patterns
+seed [command] --targets PATTERN  # extra target globs
+seed [command] --target-mode {prefix,exact}  # target matching mode</code></pre>
             </div>
         </section>
 
-        <!-- Core Commands Tab -->
+        <!-- Commands Tab -->
         <section id="commands" class="tab-content">
-            <h2>Core Commands</h2>
+            <h2>Commands & Workflow</h2>
 
             <div class="command-card">
                 <h4>seed plan &lt;spec&gt;</h4>
-                <p>Parse spec and generate execution plan. Runs plugin parse + plan lifecycle and outputs the planned changes without modifying the filesystem.</p>
+                <p>Parse a spec and build a deterministic execution plan without modifying the filesystem.</p>
                 <div class="options">
-                    <code>--base BASE</code> Base directory (default: current directory)<br>
-                    <code>--vars VARS</code> Template variables (key=value)<br>
-                    <code>--out OUT</code> Output plan to file (JSON format)<br>
-                    <code>--dot</code> Output plan as Graphviz DOT format<br>
-                    <code>--no-skip</code> Hide SKIP lines in output for cleaner view
+                    <code>--base BASE</code> base directory (default: current directory)<br>
+                    <code>--vars VARS</code> template variables (<code>key=value</code>)<br>
+                    <code>--out OUT</code> write the plan as JSON<br>
+                    <code>--dot</code> export the plan as Graphviz DOT<br>
+                    <code>--no-skip</code> hide SKIP lines in console output
                 </div>
             </div>
             <div class="code-block">
                 <button class="copy-btn">Copy</button>
-                <pre><code class="language-bash"># Preview what would be created
-seed plan project.tree
-
-# With template variables
+                <pre><code class="language-bash">seed plan project.tree
 seed plan project.tree --vars environment=prod
-
-# Export plan as JSON
 seed plan project.tree --out plan.json
-
-# Export as Graphviz DOT
 seed plan project.tree --dot > plan.dot</code></pre>
             </div>
 
             <div class="command-card">
-                <h4>seed apply &lt;spec&gt;</h4>
-                <p>Acquire state lock, run hooks (pre_apply, post_apply), execute plan, and run plugin build lifecycle. Creates files and directories as specified.</p>
+                <h4>seed apply &lt;spec-or-plan&gt;</h4>
+                <p>Apply a spec directly or execute a previously saved plan. Optional items can be auto-created or skipped in bulk.</p>
                 <div class="options">
-                    <code>--base BASE</code> Base directory (default: current directory)<br>
-                    <code>--dangerous</code> Allow dangerous operations<br>
-                    <code>--dry-run</code> Show what would be executed without making changes<br>
-                    <code>--yes, -y</code> Create all optional items (marked with ?) without prompting<br>
-                    <code>--skip-optional</code> Skip all optional items (marked with ?) without prompting
+                    <code>--base BASE</code> base directory (default: current directory)<br>
+                    <code>--dangerous</code> allow dangerous plan steps when needed<br>
+                    <code>--dry-run</code> preview execution without writes<br>
+                    <code>--yes, -y</code> create all optional items<br>
+                    <code>--skip-optional</code> skip all optional items
                 </div>
             </div>
             <div class="code-block">
                 <button class="copy-btn">Copy</button>
-                <pre><code class="language-bash"># Apply spec to current directory
-seed apply project.tree
-
-# Apply to specific directory
+                <pre><code class="language-bash">seed apply project.tree
+seed apply plan.json
 seed apply project.tree --base ./myproject
-
-# Preview without making changes
-seed apply project.tree --dry-run
-
-# Auto-create all optional items
-seed apply project.tree --yes
-
-# Skip all optional items
-seed apply project.tree --skip-optional</code></pre>
+seed apply project.tree --dry-run</code></pre>
             </div>
 
             <div class="command-card">
                 <h4>seed diff &lt;spec&gt;</h4>
-                <p>Compare spec with filesystem and show missing, extra, and drifted paths. Useful for detecting drift from your intended structure.</p>
+                <p>Compare a spec with the current filesystem and show missing, extra, or drifted paths.</p>
                 <div class="options">
-                    <code>--base BASE</code> Base directory (default: current directory)<br>
-                    <code>--ignore PATTERN</code> Ignore paths matching pattern (can be repeated)<br>
-                    <code>--no-sublevels</code> Hide extras inside directories defined in the spec
+                    <code>--base BASE</code> base directory (default: current directory)<br>
+                    <code>--ignore PATTERN</code> ignore matching paths (repeatable)<br>
+                    <code>--no-sublevels</code> hide extras inside directories already defined in the spec
                 </div>
             </div>
             <div class="code-block">
                 <button class="copy-btn">Copy</button>
-                <pre><code class="language-bash"># Compare spec with current directory
-seed diff project.tree
-
-# Ignore certain patterns
+                <pre><code class="language-bash">seed diff project.tree
 seed diff project.tree --ignore "*.pyc" --ignore "__pycache__"
-
-# Only show top-level extras
 seed diff project.tree --no-sublevels</code></pre>
             </div>
 
             <div class="command-card">
-                <h4>seed capture</h4>
-                <p>Capture current filesystem state as a spec file. Useful for creating initial specs from existing projects.</p>
+                <h4>seed maintain &lt;manifest-or-dir&gt;</h4>
+                <p>Build or execute repository, project, service, and system maintenance plans from YAML or JSON manifests.</p>
                 <div class="options">
-                    <code>--base BASE</code> Base directory (default: current directory)<br>
-                    <code>--json</code> Output in JSON format<br>
-                    <code>--dot</code> Output in Graphviz DOT format<br>
-                    <code>--out OUT</code> Output file path (prints to stdout if not specified)
+                    <code>--execute</code> run the generated commands instead of only printing the plan
                 </div>
             </div>
             <div class="code-block">
                 <button class="copy-btn">Copy</button>
-                <pre><code class="language-bash"># Capture to file
-seed capture --out project.tree
+                <pre><code class="language-bash">seed maintain maintenance.yml
+seed maintain ./workspace
+seed maintain ./workspace --execute</code></pre>
+            </div>
 
-# Capture specific directory
-seed capture --base ./src --out src.tree
-
-# Output as JSON
+            <div class="command-card">
+                <h4>seed capture</h4>
+                <p>Capture the current filesystem state as a spec, JSON document, or DOT graph.</p>
+                <div class="options">
+                    <code>--base BASE</code> base directory (default: current directory)<br>
+                    <code>--json</code> output JSON instead of tree text<br>
+                    <code>--dot</code> output Graphviz DOT<br>
+                    <code>--out OUT</code> write to a file instead of stdout
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash">seed capture --out project.tree
 seed capture --json --out project.json
-
-# Output as Graphviz DOT
 seed capture --dot --out project.dot</code></pre>
             </div>
 
             <div class="command-card">
-                <h4>seed create &lt;spec&gt; &lt;values...&gt;</h4>
-                <p>Create a new instance of a template directory structure. Use with specs containing <code>&lt;varname&gt;/</code> template patterns.</p>
+                <h4>seed create</h4>
+                <p>Create a new instance from a spec with template directories, a mirrored project template path, or a registered project template name.</p>
                 <div class="options">
-                    <code>--base BASE</code> Base directory (default: current directory)<br>
-                    <code>--dry-run</code> Preview what would be created
+                    <code>--template TEMPLATE</code> use a project template path under <code>.seed/templates/</code><br>
+                    <code>--project PROJECT</code> use a registered project template name<br>
+                    <code>--base BASE</code> base directory (default: current directory)<br>
+                    <code>--dry-run</code> preview what would be created
                 </div>
             </div>
             <div class="code-block">
                 <button class="copy-btn">Copy</button>
-                <pre><code class="language-bash"># Create new version directory from template
-seed create releases.tree version_id=v3
-
-# Preview without creating
-seed create releases.tree version_id=v3 --dry-run
-
-# Multiple variables
-seed create project.tree name=myapp env=production</code></pre>
+                <pre><code class="language-bash">seed create releases.tree version_id=v3
+seed create --template .seed/templates/releases.tree version_id=v3
+seed create --project version_id version_id=v3
+seed create releases.tree version_id=v3 --dry-run</code></pre>
             </div>
         </section>
 
@@ -703,190 +697,86 @@ project/
 
         <!-- Templates Tab -->
         <section id="templates" class="tab-content">
-            <h2>Template Registry</h2>
-            <p>Manage reusable spec templates from GitHub or local sources.</p>
+            <h2>Templates & Scaffolding</h2>
+            <p>Use the registry for reusable templates, or create directly from project-local templates under <code>.seed/templates/</code>.</p>
 
             <div class="command-card">
                 <h4>seed templates add &lt;source&gt;</h4>
-                <p>Add a template from GitHub URL or local file path. Supports fetching real file contents from a content source.</p>
+                <p>Add a template from GitHub or a local spec. Templates can also fetch real file contents from a content source.</p>
                 <div class="options">
-                    <code>--name, -n NAME</code> Name for the template (default: derived from URL/filename)<br>
-                    <code>--version, -v VERSION</code> Version name (default: auto-increment)<br>
-                    <code>--content-url URL</code> Fetch file contents from a local path or GitHub tree URL
+                    <code>--name, -n NAME</code> template name (default: derived from source)<br>
+                    <code>--version, -v VERSION</code> version name (default: auto-increment)<br>
+                    <code>--content-url URL</code> local path or GitHub tree URL for file contents
                 </div>
             </div>
             <div class="code-block">
                 <button class="copy-btn">Copy</button>
-                <pre><code class="language-bash"># From GitHub
-seed templates add https://github.com/user/template-repo
-
-# From local file
-seed templates add ./my-templates/python-project.tree
-
-# With custom name
-seed templates add ./template.tree --name my-template
-
-# With specific version
-seed templates add ./template.tree --name my-template --version v1.0
-
-# With content from GitHub
+                <pre><code class="language-bash">seed templates add ./template.tree --name my-template
 seed templates add ./fastapi --name fastapi \
-  --content-url https://github.com/tiangolo/full-stack-fastapi-template/tree/master/backend/app
-
-# With content from a local directory
-seed templates add ./my-template --name myapp --content-url /path/to/local/files</code></pre>
-            </div>
-
-            <div class="command-card">
-                <h4>seed templates list</h4>
-                <p>List all stored templates with their versions and lock status.</p>
-            </div>
-            <div class="code-block">
-                <button class="copy-btn">Copy</button>
-                <pre><code class="language-bash">seed templates list</code></pre>
+  --content-url https://github.com/tiangolo/full-stack-fastapi-template/tree/master/backend/app</code></pre>
             </div>
 
             <div class="command-card">
                 <h4>seed templates use &lt;name&gt;</h4>
-                <p>Apply a template to the filesystem. Creates the directory structure defined in the template.</p>
+                <p>Apply a stored template with direct vars, data files, answers files, overwrite rules, and gated template tasks.</p>
                 <div class="options">
-                    <code>--version, -v VERSION</code> Version to use (default: current)<br>
-                    <code>--base BASE</code> Base directory (default: current directory)<br>
-                    <code>--vars VARS</code> Template variables (key=value)<br>
-                    <code>--yes, -y</code> Apply without prompting<br>
-                    <code>--dry-run</code> Show plan without applying
+                    <code>--version, -v VERSION</code> version to use (default: current)<br>
+                    <code>--base BASE</code> base directory (default: current directory)<br>
+                    <code>--vars VARS</code> template variables (<code>key=value</code>)<br>
+                    <code>--data-file FILE</code> load variables from JSON or YAML<br>
+                    <code>--defaults</code> use template defaults for unanswered questions<br>
+                    <code>--non-interactive</code> fail instead of prompting for missing required answers<br>
+                    <code>--answers-file FILE</code> write resolved answers inside the target base directory<br>
+                    <code>--unsafe</code> allow execution of template-defined <code>_tasks</code><br>
+                    <code>--overwrite</code> overwrite existing files when rendering content<br>
+                    <code>--yes, -y</code> apply without prompting<br>
+                    <code>--dry-run</code> preview the plan without applying it
                 </div>
             </div>
             <div class="code-block">
                 <button class="copy-btn">Copy</button>
-                <pre><code class="language-bash"># Use template in current directory
-seed templates use python-project
-
-# Use in specific directory
-seed templates use python-project --base ./myproject
-
-# With variables
-seed templates use python-project --vars name=myapp version=1.0
-
-# Preview without applying
-seed templates use python-project --dry-run
-
-# Use specific version
-seed templates use python-project --version v2</code></pre>
+                <pre><code class="language-bash">seed templates use python-package --base ./myapp
+seed templates use python-package --data-file answers.yml --defaults
+seed templates use python-package --answers-file .seed/answers.yml
+seed templates use python-package --unsafe --overwrite</code></pre>
             </div>
 
             <div class="command-card">
-                <h4>seed templates show &lt;name&gt;</h4>
-                <p>Show the content of a template.</p>
-                <div class="options">
-                    <code>--version, -v VERSION</code> Version to show (default: current)
-                </div>
+                <h4>seed templates list | show | versions | lock | update | remove</h4>
+                <p>Inspect templates, manage versions, lock a template to a specific version, refresh content sources, or remove a template from the registry.</p>
             </div>
             <div class="code-block">
                 <button class="copy-btn">Copy</button>
-                <pre><code class="language-bash"># Show current version
-seed templates show python-project
-
-# Show specific version
-seed templates show python-project --version v1</code></pre>
-            </div>
-
-            <div class="command-card">
-                <h4>seed templates versions &lt;name&gt;</h4>
-                <p>Manage template versions. List versions, add new versions, or set current version.</p>
-                <div class="options">
-                    <code>--add PATH</code> Add a new version from file<br>
-                    <code>--name VERSION</code> Name for the new version (with --add)<br>
-                    <code>--set-current VERSION</code> Set version as current
-                </div>
-            </div>
-            <div class="code-block">
-                <button class="copy-btn">Copy</button>
-                <pre><code class="language-bash"># List versions
-seed templates versions python-project
-
-# Add new version
-seed templates versions python-project --add ./updated.tree --name v2
-
-# Set current version
-seed templates versions python-project --set-current v2</code></pre>
-            </div>
-
-            <div class="command-card">
-                <h4>seed templates lock &lt;name&gt;</h4>
-                <p>Lock or unlock a template to prevent/allow updates.</p>
-                <div class="options">
-                    <code>--version, -v VERSION</code> Version to set as current before locking<br>
-                    <code>--unlock</code> Unlock instead of lock
-                </div>
-            </div>
-            <div class="code-block">
-                <button class="copy-btn">Copy</button>
-                <pre><code class="language-bash"># Lock template
-seed templates lock python-project
-
-# Lock at specific version
-seed templates lock python-project --version v1
-
-# Unlock template
-seed templates lock python-project --unlock</code></pre>
-            </div>
-
-            <div class="command-card">
-                <h4>seed templates update &lt;name&gt;</h4>
-                <p>Re-fetch content from a template's content source. Use <code>--all</code> to update every template that has a content URL. Use <code>--content-url</code> to change where content is fetched from.</p>
-                <div class="options">
-                    <code>--all</code> Update all templates with content sources<br>
-                    <code>--content-url URL</code> Set a new content source (local path or GitHub tree URL)
-                </div>
-            </div>
-            <div class="code-block">
-                <button class="copy-btn">Copy</button>
-                <pre><code class="language-bash"># Re-fetch content for a template
-seed templates update fastapi
-
-# Update all templates
+                <pre><code class="language-bash">seed templates list
+seed templates show python-package --version v1
+seed templates versions python-package --add ./updated.tree --name v2
+seed templates lock python-package --version v2
 seed templates update --all
-
-# Change content source
-seed templates update myapp --content-url https://github.com/owner/repo/tree/develop/src
-
-# Switch from GitHub to local directory
-seed templates update myapp --content-url /path/to/local/files</code></pre>
-            </div>
-
-            <div class="command-card">
-                <h4>seed templates remove &lt;name&gt;</h4>
-                <p>Remove a template from the registry.</p>
-            </div>
-            <div class="code-block">
-                <button class="copy-btn">Copy</button>
-                <pre><code class="language-bash">seed templates remove python-project</code></pre>
+seed templates remove python-package</code></pre>
             </div>
 
             <hr>
 
-            <h3>Content Sources (source.json)</h3>
-            <p>Templates can include a <code>source.json</code> file that tells seed where to fetch real file contents from. When a template with a <code>source.json</code> is installed, seed automatically downloads the files.</p>
+            <h3>Project-Local Templates</h3>
+            <p>When a parsed spec contains template subtrees, seed mirrors template-capable specs into <code>.seed/templates/</code> and also extracts nested project templates into <code>.seed/templates/project/</code>.</p>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash">seed create --template .seed/templates/releases.tree version_id=v3
+seed create --project version_id version_id=v3</code></pre>
+            </div>
+
+            <h3>Content Sources</h3>
+            <p>Templates can include a <code>source.json</code> file so seed fetches actual file contents from a local directory or a GitHub tree URL.</p>
             <div class="code-block">
                 <button class="copy-btn">Copy</button>
                 <pre><code class="language-json">{
   "content_url": "https://github.com/owner/repo/tree/main/src"
 }</code></pre>
             </div>
-            <p>Content sources support both local directory paths and GitHub tree URLs. The built-in <code>fastapi</code>, <code>python-package</code>, and <code>node-typescript</code> templates ship with <code>source.json</code> and auto-fetch content on first use.</p>
+            <p>The built-in <code>fastapi</code>, <code>python-package</code>, and <code>node-typescript</code> templates use this pattern. Template storage defaults to <code>~/.seed/templates/</code> and can be moved with <code>SEED_HOME</code>.</p>
 
-            <h3>Changing a Template's Content Source</h3>
-            <p>Use <code>seed templates update</code> with <code>--content-url</code> to point a template at a different source. This updates both <code>meta.json</code> and <code>source.json</code> in <code>~/.seed/templates/&lt;name&gt;/</code>.</p>
-            <div class="code-block">
-                <button class="copy-btn">Copy</button>
-                <pre><code class="language-bash"># Point to a different repo/branch
-seed templates update myapp \
-  --content-url https://github.com/owner/repo/tree/develop/src
-
-# Switch to a local directory
-seed templates update myapp --content-url /path/to/local/files</code></pre>
-            </div>
+            <h3>Copier-Style Config</h3>
+            <p>Template configs are discovered from <code>copier.yml</code>, <code>copier.yaml</code>, <code>.seed-template.yml</code>, or <code>.seed-template.yaml</code>. seed understands question defaults, choices, <code>_exclude</code>, <code>_skip_if_exists</code>, <code>_answers_file</code>, and <code>_tasks</code>.</p>
         </section>
 
         <!-- Lock & Versioning Tab -->
@@ -1134,7 +1024,7 @@ seed export json --input project.tree --out project.json</code></pre>
             <h3>Hooks</h3>
             <div class="command-card">
                 <h4>seed hooks install</h4>
-                <p>Install git hooks (e.g., pre-commit) to automatically validate filesystem structure on commits.</p>
+                <p>Install lightweight git hooks from seed. Use this when you want repository-local automation around your structure workflow.</p>
                 <div class="options">
                     <code>--hook HOOK</code> Hook name to install (default: pre-commit)
                 </div>
@@ -1193,6 +1083,16 @@ seed utils state-lock --force-unlock
 # Renew existing lock
 seed utils state-lock --renew</code></pre>
             </div>
+
+            <hr>
+
+            <h3>Shell Completion</h3>
+            <p>seed integrates with <code>argcomplete</code> for shell tab completion.</p>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash">eval "$(register-python-argcomplete seed)"
+register-python-argcomplete --shell fish seed | source</code></pre>
+            </div>
         </section>
 
         <footer>
@@ -1200,7 +1100,7 @@ seed utils state-lock --renew</code></pre>
                 <a href="recipes.html">Recipes</a> ·
                 <a href="https://github.com/Isaac12x/seed-cli">GitHub</a> ·
                 <a href="https://pypi.org/project/seed-cli/">PyPI</a> ·
-                MIT License
+                Modified MIT
             </p>
         </footer>
     </div>

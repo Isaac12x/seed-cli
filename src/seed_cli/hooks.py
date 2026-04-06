@@ -17,6 +17,7 @@ Failures are isolated and reported but do not crash execution by default.
 import subprocess
 import sys
 import traceback
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Optional, Callable, Dict
@@ -104,6 +105,30 @@ def post_step(hooks, step, base, outcome, **kw):
 
 
 def load_filesystem_hooks(hooks_dir: Path) -> list[_ScriptHook]:
+    def _run_shell(script_path: Path, *, stage: str, cwd=None, env=None):
+        merged_env = dict(os.environ)
+        if env:
+            merged_env.update(env)
+        merged_env["SEED_HOOK_STAGE"] = stage
+        subprocess.run(
+            ["/bin/bash", str(script_path)],
+            check=True,
+            cwd=cwd,
+            env=merged_env,
+        )
+
+    def _run_python(script_path: Path, *, stage: str, cwd=None, env=None):
+        merged_env = dict(os.environ)
+        if env:
+            merged_env.update(env)
+        merged_env["SEED_HOOK_STAGE"] = stage
+        subprocess.run(
+            [sys.executable, str(script_path)],
+            check=True,
+            cwd=cwd,
+            env=merged_env,
+        )
+
     hooks = []
     if not hooks_dir.exists():
         return hooks
@@ -113,9 +138,9 @@ def load_filesystem_hooks(hooks_dir: Path) -> list[_ScriptHook]:
             hooks.append(
                 _ScriptHook(
                     name=p.name,
-                    command=lambda stage, *a, **k: subprocess.run(
-                        ["/bin/bash", str(p)],
-                        check=True,
+                    command=lambda stage, script_path=p, *a, **k: _run_shell(
+                        script_path,
+                        stage=stage,
                         cwd=k.get("cwd"),
                         env=k.get("env"),
                     ),
@@ -125,9 +150,9 @@ def load_filesystem_hooks(hooks_dir: Path) -> list[_ScriptHook]:
             hooks.append(
                 _ScriptHook(
                     name=p.name,
-                    command=lambda stage, *a, **k: subprocess.run(
-                        [sys.executable, str(p)],
-                        check=True,
+                    command=lambda stage, script_path=p, *a, **k: _run_python(
+                        script_path,
+                        stage=stage,
                         cwd=k.get("cwd"),
                         env=k.get("env"),
                     ),
