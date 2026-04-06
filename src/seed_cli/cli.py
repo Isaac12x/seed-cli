@@ -838,13 +838,19 @@ def main(argv=None) -> int:
         from seed_cli.match import create_from_template
 
         create_args = list(getattr(args, "create_args", []))
+        spec_source = None
+        raw_values = []
+
         if getattr(args, "template", None) and getattr(args, "project", None):
             print("Error: use either --template or --project, not both")
             return 1
 
         if getattr(args, "template", None):
+            if not Path(args.template).is_absolute():
+                print("Error: --template must be a full path to a .tree file")
+                return 1
             if not create_args:
-                print("Error: provide at least one template value as varname=value")
+                print("Error: provide a target folder name or template values")
                 return 1
             resolved_template = resolve_project_template_path(args.template, base)
             if not resolved_template.exists():
@@ -878,18 +884,28 @@ def main(argv=None) -> int:
                 raw_values = [f"{var_name}={args.project}"]
         else:
             if not create_args:
-                print("Error: provide a spec file or use --template")
+                print("Error: provide a template name and target folder, or use --template /full/path/to/spec.tree")
                 return 1
-            spec_source = create_args[0]
+            template_ref = create_args[0]
             raw_values = create_args[1:]
             if not raw_values:
-                print("Error: provide at least one template value as varname=value")
+                print("Error: provide a target folder name or template values")
                 return 1
+
+            resolved_template = resolve_project_template_path(template_ref, base)
+            if resolved_template.exists() and resolved_template.is_file():
+                spec_source = str(resolved_template)
+            else:
+                try:
+                    resolved_template = resolve_registered_project_template(template_ref, base)
+                    spec_source = str(resolved_template)
+                except FileNotFoundError:
+                    spec_source = template_ref
 
         # Parse template values
         template_values = {}
         implicit_var_name = None
-        if getattr(args, "project", None):
+        if spec_source and Path(spec_source).exists():
             implicit_var_name = _single_template_var_name(spec_source, base)
         for val in raw_values:
             if "=" not in val:

@@ -1,23 +1,12 @@
-name: ci-cd
-on:
-  push:
-    tags:
-      - "v*"
+name: seed
+on: [push, pull_request]
 jobs:
-  pypi-publish:
-    name: Upload release to PyPI
+  test:
     runs-on: ubuntu-latest
-    environment:
-      name: pypi
-      url: https://pypi.org/p/seed-cli
-    permissions:
-      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - run: python -m pip install -U pip hatch twine
-      - run: rm -rf dist/
-      - run: hatch build
-      - name: Publish package distributions to PyPI
-        run: twine upload dist/*
+      - run: python -m pip install -U pip
+      - run: pip install -e ".[dev]"
+      - run: pytest

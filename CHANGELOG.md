@@ -6,7 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 - Added `seed register <spec>` in `src/seed_cli/cli.py` to:
-  - mirror template-capable specs into `.seed/templates/`
+  - mirror `.tree` specs into `.seed/templates/`
   - extract nested project templates into `.seed/templates/project/`
   - remove stale literal placeholder paths such as `<name>/` left by older apply runs
 
@@ -14,6 +14,7 @@ All notable changes to this project are documented in this file.
 - Refactored project-template registration in `src/seed_cli/project_templates.py`:
   - introduced explicit registration result/cleanup helpers
   - moved stale placeholder cleanup into the shared registration flow
+  - mirrors any `.tree` spec, even when it has no template subtree to extract
 - Updated `apply()` in `src/seed_cli/apply.py`:
   - runs the shared registration flow for spec inputs after snapshot creation and under the apply lock
   - removes previously materialized literal template subtrees before executing the pruned plan
