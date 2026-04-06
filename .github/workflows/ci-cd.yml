@@ -51,4 +51,4 @@ jobs:
         run: hatch build
       - name: Publish package distributions to PyPI
         if: steps.release.outputs.publish == 'true'
-        run: twine upload --skip-existing dist/*
+        uses: pypa/gh-action-pypi-publish@release/v1
