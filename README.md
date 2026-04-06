@@ -11,6 +11,8 @@ manifest-driven repository or service maintenance.
 Think **Terraform for directory trees**, plus **template scaffolding** and
 **workspace maintenance**.
 
+[![ci-cd](https://github.com/Isaac12x/seed-cli/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/Isaac12x/seed-cli/actions/workflows/ci-cd.yml)
+
 ## Highlights
 
 - Multiple spec inputs: `.tree`, YAML, JSON, DOT, image OCR, and stdin
