@@ -1,4 +1,5 @@
 from pathlib import Path
+from unittest.mock import patch
 from seed_cli.planning import plan
 from seed_cli.parsers import Node
 from seed_cli.checksums import save_checksums, sha256
@@ -39,6 +40,17 @@ def test_plan_emits_delete_when_allowed(tmp_path):
     res = plan([], tmp_path, allow_delete=True)
     assert any(s.op == "delete" and s.path == "extra.txt" for s in res.steps)
     assert res.delete == 1
+
+
+def test_plan_can_skip_extra_inspection(tmp_path):
+    (tmp_path / "extra.txt").write_text("x")
+
+    with patch("pathlib.Path.rglob", side_effect=AssertionError("rglob should not be called")):
+        res = plan([], tmp_path, allow_delete=False, include_extras=False)
+
+    assert res.steps == []
+    assert res.delete == 0
+    assert res.delete_skipped == 0
 
 
 def test_plan_checksum_drift_update(tmp_path):

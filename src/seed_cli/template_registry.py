@@ -45,6 +45,12 @@ log = get_logger("template_registry")
 TEMPLATES_DIR_NAME = "templates"
 REGISTRY_FILE = "registry.json"
 META_FILE = "meta.json"
+CONFIG_CANDIDATES = (
+    "copier.yml",
+    "copier.yaml",
+    ".seed-template.yml",
+    ".seed-template.yaml",
+)
 
 
 @dataclass
@@ -74,7 +80,8 @@ def get_templates_dir() -> Path:
 
     Creates the directory if it doesn't exist.
     """
-    seed_dir = Path.home() / ".seed"
+    seed_home = os.environ.get("SEED_HOME")
+    seed_dir = Path(seed_home).expanduser() if seed_home else (Path.home() / ".seed")
     templates_dir = seed_dir / TEMPLATES_DIR_NAME
     templates_dir.mkdir(parents=True, exist_ok=True)
     return templates_dir
@@ -745,6 +752,7 @@ def add_local_template(
 
     # If spec_path is a directory, look for spec.tree and files/ inside
     source_json_data = None
+    config_file: Optional[Path] = None
     if spec_file.is_dir():
         source_dir = spec_file
         spec_file = source_dir / "spec.tree"
@@ -756,6 +764,11 @@ def add_local_template(
         files_dir = source_dir / "files"
         if content_dir is None and files_dir.exists() and files_dir.is_dir():
             content_dir = str(files_dir)
+        for candidate in CONFIG_CANDIDATES:
+            cfg_path = source_dir / candidate
+            if cfg_path.exists() and cfg_path.is_file():
+                config_file = cfg_path
+                break
         # Check for source.json
         source_json_path = source_dir / "source.json"
         if source_json_path.exists():
@@ -786,6 +799,11 @@ def add_local_template(
     # Copy the spec file
     dest_path = template_dir / f"{version}.tree"
     shutil.copy2(spec_file, dest_path)
+
+    # Persist template config for this version (if provided by source template)
+    if config_file:
+        config_dest = template_dir / f"{version}.config.yml"
+        shutil.copy2(config_file, config_dest)
 
     # Copy content directory if provided
     if content_dir:
@@ -955,6 +973,32 @@ def get_template_content_dir(name: str, version: Optional[str] = None) -> Option
     content_dir = _get_template_dir(name) / version
     if content_dir.exists() and content_dir.is_dir():
         return content_dir
+    return None
+
+
+def get_template_config_path(name: str, version: Optional[str] = None) -> Optional[Path]:
+    """Get the path to a template configuration file, if present."""
+    meta = get_template(name)
+    if not meta:
+        return None
+
+    if version is None:
+        version = meta.current_version
+    elif not version.startswith("v"):
+        version = f"v{version}"
+
+    template_dir = _get_template_dir(name)
+    versioned_config = template_dir / f"{version}.config.yml"
+    if versioned_config.exists():
+        return versioned_config
+
+    content_dir = template_dir / version
+    if content_dir.exists() and content_dir.is_dir():
+        for candidate in CONFIG_CANDIDATES:
+            cfg = content_dir / candidate
+            if cfg.exists() and cfg.is_file():
+                return cfg
+
     return None
 
 

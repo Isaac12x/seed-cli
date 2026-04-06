@@ -20,6 +20,12 @@ def _err(msg: str) -> None:
     raise SchemaError(msg)
 
 
+def _is_valid_annotation(annotation: str) -> bool:
+    if annotation in VALID_ANNOTATIONS:
+        return True
+    return annotation.startswith("template:")
+
+
 def validate_document(doc: Dict[str, Any]) -> None:
     if not isinstance(doc, dict):
         _err("document must be an object")
@@ -49,7 +55,7 @@ def validate_document(doc: Dict[str, Any]) -> None:
 
         if "annotation" in e:
             a = e["annotation"]
-            if a not in VALID_ANNOTATIONS:
+            if not _is_valid_annotation(a):
                 _err(f"entry {i} invalid annotation '{a}'")
 
         if "comment" in e and not isinstance(e["comment"], str):

@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "seed-cli"
-version = "1.0.5"
+version = "1.0.8"
 description = "The perfect pair for the `tree` program. Seed creates, updates and deletes file and folder structures in your codebase."
 requires-python = ">=3.10"
 readme = "README.md"
@@ -20,10 +20,6 @@ license = {text = "ModifiedMIT"}
 classifiers = [
   "Development Status :: 4 - Beta",
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.6",
-  "Programming Language :: Python :: 3.7",
-  "Programming Language :: Python :: 3.8",
-  "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",

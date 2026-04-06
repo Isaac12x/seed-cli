@@ -135,6 +135,26 @@ def _fs_index(base: Path, ignore: List[str]) -> Dict[str, str]:
     return idx
 
 
+def _path_type(base: Path, rel: str, ignore: List[str], cache: Optional[Dict[str, Optional[str]]] = None) -> Optional[str]:
+    """Resolve a single filesystem path type without walking the whole tree."""
+    if cache is not None and rel in cache:
+        return cache[rel]
+
+    kind: Optional[str]
+    if not rel or _ignored(rel, ignore):
+        kind = None
+    else:
+        target = base / rel
+        if not target.exists():
+            kind = None
+        else:
+            kind = "dir" if target.is_dir() else "file"
+
+    if cache is not None:
+        cache[rel] = kind
+    return kind
+
+
 def _spec_index(nodes: List[Node], ignore: List[str]) -> Dict[str, Node]:
     idx: Dict[str, Node] = {}
     for n in nodes:
@@ -152,6 +172,7 @@ def plan(
     allow_delete: bool = False,
     targets: Optional[List[str]] = None,
     target_mode: str = "prefix",
+    include_extras: bool = True,
 ) -> PlanResult:
     """Create an execution plan.
 
@@ -162,12 +183,17 @@ def plan(
         allow_delete: Whether to emit delete steps for filesystem extras.
         targets: Optional list of target prefixes or exact paths to scope planning.
         target_mode: 'prefix' (default) or 'exact'.
+        include_extras: Whether to scan the full filesystem for extra paths.
+            Disable this for apply-style planning where only spec paths matter.
 
     Returns:
         PlanResult with ordered PlanStep list and summary counts.
     """
     ignore_patterns = (ignore or []) + DEFAULT_IGNORE
     targets = targets or []
+
+    if allow_delete and not include_extras:
+        raise ValueError("include_extras=False cannot be used when allow_delete=True")
 
     # 1. Build indices
     sidx = _spec_index(spec_nodes, ignore_patterns)
@@ -197,8 +223,15 @@ def plan(
         if base.name == root and root in sidx and sidx[root].is_dir:
             sidx = _strip_prefix_index(sidx, root)
 
-    # 4. Now build filesystem index
-    fidx = _fs_index(base, ignore_patterns)
+    # 4. Build filesystem lookup state
+    fidx = _fs_index(base, ignore_patterns) if include_extras else {}
+    ftype_cache: Dict[str, Optional[str]] = {}
+
+    def get_ftype(rel: str) -> Optional[str]:
+        if include_extras and rel in fidx:
+            return fidx[rel]
+        return _path_type(base, rel, ignore_patterns, ftype_cache)
+
     checks = load_checksums(base)  # {rel: {sha256:..., annotation:...}}
 
     # 5. Everything below stays EXACTLY the same
@@ -211,7 +244,7 @@ def plan(
             continue
 
         stype = "dir" if node.is_dir else "file"
-        ftype = fidx.get(rel)
+        ftype = get_ftype(rel)
 
         deps: List[str] = []
         parent = str(Path(rel).parent) if "/" in rel else ""
@@ -259,7 +292,7 @@ def plan(
 
     # add mkdirs for missing parents (even if not in spec list)
     for parent in sorted(required_parents, key=lambda p: (len(Path(p).parts), p)):
-        if fidx.get(parent) == "dir":
+        if get_ftype(parent) == "dir":
             continue
         if any(st.op == "mkdir" and st.path == parent for st in steps):
             continue
@@ -273,17 +306,18 @@ def plan(
             s.depends_on = [d for d in s.depends_on if d in present]
 
     # Extras: delete/skip
-    extras = [rel for rel in fidx.keys() if rel not in sidx]
-    extras.sort(key=lambda r: len(Path(r).parts), reverse=True)
-    for rel in extras:
-        if targets and not _target_match(rel, targets, target_mode):
-            continue
-        if allow_delete:
-            steps.append(PlanStep("delete", rel, "extra"))
-            delete += 1
-        else:
-            steps.append(PlanStep("skip", rel, "extra", note="SKIPPED: deletions not allowed"))
-            delete_skipped += 1
+    if include_extras:
+        extras = [rel for rel in fidx.keys() if rel not in sidx]
+        extras.sort(key=lambda r: len(Path(r).parts), reverse=True)
+        for rel in extras:
+            if targets and not _target_match(rel, targets, target_mode):
+                continue
+            if allow_delete:
+                steps.append(PlanStep("delete", rel, "extra"))
+                delete += 1
+            else:
+                steps.append(PlanStep("skip", rel, "extra", note="SKIPPED: deletions not allowed"))
+                delete_skipped += 1
 
     # Deduplicate (defensive) and order
     seen: Set[str] = set()

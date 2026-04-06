@@ -16,12 +16,12 @@ Structure:
 
 from pathlib import Path
 from typing import List, Optional, Tuple
+import fnmatch
 import re
 import shutil
 from datetime import datetime
 
-from .capture import capture_nodes, to_tree_text
-from .parsers import Node
+from .capture import capture_nodes, to_tree_text, DEFAULT_IGNORE
 
 
 SPECS_DIR = ".seed/specs"
@@ -61,17 +61,31 @@ def _specs_differ(spec1: str, spec2: str) -> bool:
     return lines1 != lines2
 
 
+def _filter_source_spec(source_spec: str, ignore: List[str]) -> str:
+    """Filter normalized spec content using capture ignore patterns."""
+    lines: List[str] = []
+    for raw_line in source_spec.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        rel = line.rstrip("/")
+        if rel and any(fnmatch.fnmatch(rel, pat) or fnmatch.fnmatch(rel + "/", pat) for pat in ignore):
+            continue
+        lines.append(line)
+    return "\n".join(lines)
+
+
 def capture_spec(
     base: Path,
     source_spec: Optional[str] = None,
     ignore: Optional[List[str]] = None,
     force: bool = False,
 ) -> Optional[Tuple[int, Path]]:
-    """Capture current filesystem state as a versioned spec.
+    """Capture filesystem state or normalized source spec as a versioned spec.
 
     Args:
         base: Base directory to capture
-        source_spec: Original spec content (if available, used for comparison)
+        source_spec: Normalized spec content to persist without walking the filesystem
         ignore: Additional ignore patterns
         force: Create new version even if unchanged
 
@@ -79,10 +93,14 @@ def capture_spec(
         Tuple of (version_number, spec_path) if new version created, None otherwise
     """
     specs_dir = _get_specs_dir(base)
+    ignore_patterns = (ignore or []) + DEFAULT_IGNORE
 
-    # Capture current state
-    nodes = capture_nodes(base, ignore=ignore)
-    spec_content = to_tree_text(nodes)
+    if source_spec is not None:
+        spec_content = _filter_source_spec(source_spec, ignore_patterns)
+    else:
+        # Capture current state
+        nodes = capture_nodes(base, ignore=ignore)
+        spec_content = to_tree_text(nodes)
 
     # Add header with timestamp
     header = f"# Captured: {datetime.now().isoformat()}\n"

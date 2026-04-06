@@ -1,13 +1,39 @@
+import os
 import subprocess
 import sys
 from pathlib import Path
 
+
+def project_version() -> str:
+    pyproject_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    in_project_section = False
+    for raw_line in pyproject_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line == "[project]":
+            in_project_section = True
+            continue
+        if in_project_section and line.startswith("["):
+            break
+        if in_project_section and line.startswith("version"):
+            _, value = line.split("=", 1)
+            return value.strip().strip("\"'")
+    raise AssertionError("Could not find [project].version in pyproject.toml")
+
+
 def run(cmd, cwd):
+    env = dict(os.environ)
+    repo_root = Path(__file__).resolve().parents[1]
+    src_path = str(repo_root / "src")
+    existing = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = src_path if not existing else f"{src_path}{os.pathsep}{existing}"
     p = subprocess.run(
         [sys.executable, "-m", "seed_cli.cli"] + cmd,
         cwd=cwd,
         capture_output=True,
         text=True,
+        env=env,
     )
     # Combine stdout and stderr for easier checking
     output = p.stdout + p.stderr
@@ -51,6 +77,12 @@ def test_cli_no_command(tmp_path):
     assert code == 1
     assert "no command provided" in out
     assert "Available commands" in out
+
+
+def test_cli_version(tmp_path):
+    code, out, err = run(["--version"], tmp_path)
+    assert code == 0
+    assert out.strip() == f"seed {project_version()}"
 
 
 def test_cli_capture(tmp_path):
@@ -127,6 +159,32 @@ def test_cli_sync_dry_run_no_dangerous(tmp_path):
     assert code == 0
 
 
+def test_cli_maintain_dry_run(tmp_path):
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+
+    manifest = tmp_path / "maintenance.yml"
+    manifest.write_text(
+        """
+targets:
+  - name: workspace-repo
+    kind: repository
+    path: ./repo
+    goals:
+      - ensure_path
+      - git_status
+""",
+        encoding="utf-8",
+    )
+
+    code, out, err = run(["maintain", "maintenance.yml"], tmp_path)
+
+    assert code == 0
+    assert "DRY RUN" in out
+    assert "Maintenance plan:" in out
+    assert "git status --short --branch" in out
+
+
 def test_cli_diff_type_mismatch(tmp_path):
     spec = tmp_path / "spec.tree"
     spec.write_text("a/")
@@ -135,3 +193,127 @@ def test_cli_diff_type_mismatch(tmp_path):
     assert code == 1
     # Should show type mismatch
     assert "Type Mismatch" in out or "type_mismatch" in out.lower()
+
+
+def test_cli_apply_plan_delete_with_dangerous(tmp_path):
+    victim = tmp_path / "victim.txt"
+    victim.write_text("x")
+
+    plan = tmp_path / "plan.json"
+    plan.write_text(
+        (
+            '{"summary":{"add":0,"change":0,"delete":1,"delete_skipped":0},'
+            '"steps":[{"op":"delete","path":"victim.txt","reason":"test",'
+            '"annotation":null,"depends_on":null,"note":null,"optional":false}]}'
+        )
+    )
+
+    code, out, err = run(["apply", "plan.json", "--dangerous"], tmp_path)
+    assert code == 0
+    assert not victim.exists()
+
+
+def test_parse_spec_file_does_not_register_project_template(tmp_path):
+    from seed_cli.cli import parse_spec_file
+
+    (tmp_path / ".git").mkdir()
+    spec = tmp_path / "spec.tree"
+    spec.write_text(
+        "features/\n"
+        "├── <name>/\n"
+        "│   └── api/\n"
+        "│       └── route.ts\n"
+    )
+
+    parse_spec_file(str(spec), {}, tmp_path, [], {"base": tmp_path, "plugins": [], "cmd": "plan"})
+
+    registered = tmp_path / ".seed" / "templates" / "spec.tree"
+    assert not registered.exists()
+
+
+def test_cli_register_creates_project_template_support_files(tmp_path):
+    spec = tmp_path / "spec.tree"
+    spec.write_text(
+        ".\n"
+        "└── features/\n"
+        "    └── <name>/\n"
+        "        └── api/\n"
+        "            └── route.ts\n"
+    )
+
+    code, out, err = run(["register", "spec.tree"], tmp_path)
+
+    assert code == 0
+    assert (tmp_path / ".seed" / "templates" / "spec.tree").exists()
+    assert (tmp_path / "features" / ".seed" / "templates" / "project" / "name.tree").exists()
+    assert "Registered spec:" in out
+
+
+def test_cli_create_with_project_template_from_nested_dir(tmp_path):
+    (tmp_path / ".git").mkdir()
+    spec = tmp_path / "spec.tree"
+    spec.write_text(
+        "features/\n"
+        "├── <name>/\n"
+        "│   └── api/\n"
+        "│       └── route.ts\n"
+    )
+
+    code, out, err = run(["register", "spec.tree"], tmp_path)
+    assert code == 0
+    assert (tmp_path / ".seed" / "templates" / "spec.tree").exists()
+
+    nested = tmp_path / "packages" / "app"
+    nested.mkdir(parents=True)
+
+    code, out, err = run(
+        ["create", "--template", ".seed/templates/spec.tree", "name=users"],
+        nested,
+    )
+
+    assert code == 0
+    assert (nested / "users" / "api").is_dir()
+    assert (nested / "users" / "api" / "route.ts").exists()
+
+
+def test_cli_apply_cleans_stale_materialized_project_template_dir(tmp_path):
+    spec = tmp_path / "spec.tree"
+    spec.write_text(
+        ".\n"
+        "└── features/\n"
+        "    └── <name>/\n"
+        "        └── api/\n"
+        "            └── route.ts\n"
+    )
+    stale_dir = tmp_path / "features" / "<name>" / "api"
+    stale_dir.mkdir(parents=True)
+    (stale_dir / "route.ts").write_text("legacy")
+
+    code, out, err = run(["apply", "spec.tree"], tmp_path)
+
+    assert code == 0
+    assert not (tmp_path / "features" / "<name>").exists()
+    assert (tmp_path / "features" / ".seed" / "templates" / "project" / "name.tree").exists()
+
+
+def test_cli_create_with_registered_project_template(tmp_path):
+    spec = tmp_path / "spec.tree"
+    spec.write_text(
+        ".\n"
+        "└── features/\n"
+        "    └── <name>/\n"
+        "        └── api/\n"
+        "            └── route.ts\n"
+    )
+
+    code, out, err = run(["apply", "spec.tree"], tmp_path)
+    assert code == 0
+    assert (tmp_path / "features" / ".seed" / "templates" / "project" / "name.tree").exists()
+    assert not (tmp_path / "features" / "<name>").exists()
+
+    features_dir = tmp_path / "features"
+    code, out, err = run(["create", "--project", "users"], features_dir)
+
+    assert code == 0
+    assert (features_dir / "users" / "api").is_dir()
+    assert (features_dir / "users" / "api" / "route.ts").exists()

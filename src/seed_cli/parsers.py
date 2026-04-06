@@ -23,9 +23,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple, List, Dict
 
+from .logging import get_logger
 from .schema import validate_document
 from .templating import apply_vars
 from .includes import resolve_includes
+
+log = get_logger("parsers")
 
 
 @dataclass
@@ -39,11 +42,12 @@ class Node:
 
 # _COMMENT_RE matches comments in parentheses (e.g., (note here)), and ignores # style comments in a line.
 _COMMENT_RE = re.compile(r"\(([^)]+)\)|//(.*)$|#(.*)$")
-_ANNOT_RE = re.compile(r"@([a-zA-Z_][\w-]*)")
+_ANNOT_RE = re.compile(r"(?:\s+\(@([a-zA-Z_][\w-]*)\)|\s+@([a-zA-Z_][\w-]*)\b)")
 _OPTIONAL_RE = re.compile(r"\?(?:\s|$)")
 TREE_LINE = re.compile(r"""
 ^(?P<prefix>[\s│|]*)(?P<branch>├──|└──)?\s*(?P<name>.+?)\s*$
 """, re.VERBOSE)
+_GUIDE_ONLY_RE = re.compile(r"^[\s│|]+$")
 
 def _tree_depth(prefix: str) -> int:
     """
@@ -70,7 +74,7 @@ def _extract_comment_and_annotation(text: str) -> tuple[str, Optional[str], Opti
 
     ann = _ANNOT_RE.search(text)
     if ann:
-        annotation = ann.group(1)
+        annotation = ann.group(1) or ann.group(2)
         text = _ANNOT_RE.sub("", text)
 
     com = _COMMENT_RE.search(text)
@@ -137,7 +141,10 @@ def parse_spec(
     
     # Handle image files
     if path.suffix.lower() in (".png", ".jpg", ".jpeg"):
-        return extract_text_from_image_cv2(path, vars=vars,mode=mode)
+        try:
+            return parse_image(path, vars=vars, mode=mode)
+        except Exception as e:
+            raise RuntimeError(f"Failed to parse image spec '{spec_path}': {e}") from e
     
     # Handle DOT files
     if path.suffix.lower() == ".dot":
@@ -175,18 +182,23 @@ def parse_tree_text(text: str, *args, **kwargs) -> List["Node"]:
 
     for raw in text.splitlines():
         line = raw.rstrip()
+        stripped = line.strip()
         if not line:
             continue
 
         # Skip the very first root line
-        if line.endswith("/") and ("├──" not in line and "└──" not in line):
+        if stripped in (".", "./"):
+            nodes.append(_make_node(rel=".", is_dir=True))
+            stack = [Path(".")]
+            continue
+        if stripped.endswith("/") and ("├──" not in stripped and "└──" not in stripped):
             # Create explicit root node as "."
             nodes.append(_make_node(rel=".", is_dir=True))
             stack = [Path(".")]
             continue
 
-        # Skip empty lines, sometimes those are added by the tree command
-        if not line.strip() or line.strip() == "|":
+        # Skip empty guide-only lines, sometimes those are added by tree output.
+        if not stripped or _GUIDE_ONLY_RE.fullmatch(stripped):
             continue
 
         m = TREE_LINE.match(line)

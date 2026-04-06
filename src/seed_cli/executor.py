@@ -22,9 +22,12 @@ from typing import Optional, Dict, List, Set
 import shutil
 import sys
 import time
+import fnmatch
 
 from .planning import PlanResult, PlanStep
 from .checksums import sha256, load_checksums, save_checksums
+from .hooks import run_hooks
+from .security import safe_target_path, validate_plan_paths
 
 
 BACKUPS_DIR = ".seed/backups"
@@ -113,6 +116,9 @@ def execute_plan(
     skip_optional: bool = False,
     include_optional: bool = False,
     vars: Optional[Dict[str, str]] = None,
+    step_hooks: Optional[List[object]] = None,
+    template_exclude: Optional[List[str]] = None,
+    template_skip_if_exists: Optional[List[str]] = None,
 ) -> Dict[str, int]:
     """Execute a plan against the filesystem.
 
@@ -134,6 +140,11 @@ def execute_plan(
     counters = {"created": 0, "updated": 0, "deleted": 0, "skipped": 0, "backed_up": 0}
 
     plugins = plugins or []
+    step_hooks = step_hooks or []
+    template_exclude = template_exclude or []
+    template_skip_if_exists = template_skip_if_exists or []
+    base = base.resolve()
+    validate_plan_paths(plan, base)
 
     # Track skipped optional paths so we can skip their children too
     skipped_optional_paths: Set[str] = set()
@@ -145,7 +156,14 @@ def execute_plan(
         if template_dir.exists():
             for item in template_dir.rglob("*"):
                 rel = item.relative_to(template_dir)
-                target = base / rel
+                rel_path = rel.as_posix()
+                if any(fnmatch.fnmatch(rel_path, pat) for pat in template_exclude):
+                    continue
+                target = safe_target_path(base, rel_path)
+                if target.exists() and any(
+                    fnmatch.fnmatch(rel_path, pat) for pat in template_skip_if_exists
+                ):
+                    continue
                 if item.is_dir():
                     target.mkdir(parents=True, exist_ok=True)
                 else:
@@ -173,15 +191,19 @@ def execute_plan(
     checks = load_checksums(base)
 
     for step in plan.steps:
-        target = base / step.path
+        target = safe_target_path(base, step.path)
+        run_hooks(step_hooks, "pre_step", step, base, strict=True)
+        outcome = "skipped"
 
         # Check if this path is under a skipped optional parent
         if any(step.path.startswith(skipped + "/") for skipped in skipped_optional_paths):
             counters["skipped"] += 1
+            run_hooks(step_hooks, "post_step", step, base, outcome, strict=True)
             continue
 
         if step.op == "skip":
             counters["skipped"] += 1
+            run_hooks(step_hooks, "post_step", step, base, outcome, strict=True)
             continue
 
         # Handle optional items
@@ -194,6 +216,7 @@ def execute_plan(
                 counters["skipped"] += 1
                 if step.op == "mkdir":
                     skipped_optional_paths.add(step.path)
+                run_hooks(step_hooks, "post_step", step, base, outcome, strict=True)
                 continue
             elif interactive and not dry_run:
                 # Interactive mode: prompt user
@@ -201,12 +224,14 @@ def execute_plan(
                     counters["skipped"] += 1
                     if step.op == "mkdir":
                         skipped_optional_paths.add(step.path)
+                    run_hooks(step_hooks, "post_step", step, base, outcome, strict=True)
                     continue
             elif not interactive:
                 # Non-interactive mode without --yes: skip optional items
                 counters["skipped"] += 1
                 if step.op == "mkdir":
                     skipped_optional_paths.add(step.path)
+                run_hooks(step_hooks, "post_step", step, base, outcome, strict=True)
                 continue
 
         if step.op == "mkdir":
@@ -216,6 +241,8 @@ def execute_plan(
                     keep = target / ".gitkeep"
                     keep.touch(exist_ok=True)
             counters["created"] += 1
+            outcome = "created"
+            run_hooks(step_hooks, "post_step", step, base, outcome, strict=True)
             continue
 
         if step.op in ("create", "update"):
@@ -239,9 +266,22 @@ def execute_plan(
                     "sha256": sha256(target),
                     "annotation": step.annotation,
                 }
+            outcome = "created" if step.op == "create" else "updated"
+            run_hooks(step_hooks, "post_step", step, base, outcome, strict=True)
             continue
 
         if step.op == "delete":
+            vetoed = False
+            context = {"base": base, "plan": plan, "step": step}
+            for plugin in plugins:
+                before_sync_delete = getattr(plugin, "before_sync_delete", None)
+                if callable(before_sync_delete) and before_sync_delete(step.path, context) is False:
+                    vetoed = True
+                    break
+            if vetoed:
+                counters["skipped"] += 1
+                run_hooks(step_hooks, "post_step", step, base, outcome, strict=True)
+                continue
             if not dangerous:
                 raise RuntimeError("Refusing to delete without dangerous=True")
             if not dry_run and target.exists():
@@ -251,6 +291,8 @@ def execute_plan(
                     target.unlink()
             counters["deleted"] += 1
             checks.pop(step.path, None)
+            outcome = "deleted"
+            run_hooks(step_hooks, "post_step", step, base, outcome, strict=True)
             continue
 
         raise ValueError(f"Unknown plan operation: {step.op}")

@@ -41,6 +41,30 @@ def test_parse_comment_and_annotation():
     assert n.annotation == "manual"
 
 
+def test_parse_tree_skips_unicode_guides_and_preserves_at_prefixed_dirs():
+    text = """
+    .
+    ├── tracking/
+    │   └── status/
+    │
+    ├── @userfiles/
+    │   └── incoming/
+    └── archive/
+    """
+    nodes = parse_tree_text(text)
+
+    indexed = {(n.relpath.as_posix(), n.is_dir, n.annotation) for n in nodes}
+
+    assert (".", True, None) in indexed
+    assert ("tracking", True, None) in indexed
+    assert ("tracking/status", True, None) in indexed
+    assert ("@userfiles", True, None) in indexed
+    assert ("@userfiles/incoming", True, None) in indexed
+    assert ("archive", True, None) in indexed
+    assert not any(n.relpath.as_posix() == "│" for n in nodes)
+    assert not any(n.annotation == "userfiles" for n in nodes)
+
+
 def test_parse_structured_json():
     import json
     doc = {

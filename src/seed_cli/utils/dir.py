@@ -48,11 +48,11 @@ def _normalize_spec_index(
 
         if p.is_absolute():
             try:
-                p = p.resolve().relative_to(base)
+                p = p.resolve().relative_to(base.resolve())
             except ValueError:
                 # Spec path is absolute but outside base → leave as-is
                 p = p.resolve()
-        out[str(p)] = node
+        out[p.as_posix()] = node
     return out
 
 
