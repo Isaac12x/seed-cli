@@ -96,7 +96,8 @@ seed apply plan.json
 seed apply dir_structure.tree
 ```
 
-When you apply a spec with template placeholders such as `<name>/`, `seed apply`
+When you apply a spec with template placeholders such as `<name>/` or
+`features/<name>.ts`, `seed apply`
 first runs `seed register` semantics: it writes the supporting files under
 `.seed/templates/` and `.seed/templates/project/`, then removes any stale
 literal placeholder paths like `features/<name>/` left behind by older runs.
@@ -143,7 +144,7 @@ scripts/
 - `@manual`: manually maintained file
 - `?`: optional file or directory
 - `...`: allow extras inside a directory
-- `<varname>/`: template directory placeholder
+- `<varname>`: template placeholder in a path segment or filename
 - `{{var}}`: variable interpolation in file contents
 
 `.seed` also supports inline metadata markers:
@@ -185,19 +186,29 @@ files/
 └── ...
 ```
 
+Placeholders can also appear in path-per-line specs or filenames, and templates
+can include more than one placeholder:
+
+```text
+features/<domain>/<name>/route.ts
+features/<name>.ts
+```
+
 Create instances:
 
 ```bash
 seed create releases.tree version_id=v3
+seed create component.tree domain=billing name=invoices
 seed create releases.tree version_id=v3 --dry-run
 ```
 
 ### Project-Local Templates
 
 Use `seed register` to mirror any `.tree` or `.seed` spec into the project-level
-`.seed/templates/` directory. When the spec contains nested template subtrees,
-it also extracts them into `.seed/templates/project/`. `seed apply <spec>` runs
-the same registration step automatically before execution.
+`.seed/templates/` directory. When the spec contains placeholders anywhere in a
+path, it also extracts the outermost placeholder subtree into
+`.seed/templates/project/`. `seed apply <spec>` runs the same registration step
+automatically before execution.
 
 ```bash
 seed register releases.tree

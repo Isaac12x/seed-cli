@@ -5,7 +5,8 @@ All notable changes to this project are documented in this file.
 ## [Unreleased]
 
 ### Fixed
-- Made project-template registration infer placeholder templates from path-line specs, and made `seed create` materialize non-template file entries as empty files.
+- Made project-template registration infer placeholder templates from any `<var>` in spec paths, including path-line specs, placeholder filenames, and templates with multiple placeholders.
+- Made `seed create` substitute all placeholder values in selected templates so nested placeholders such as `<name>` are not left in created paths.
 
 ## [1.0.9] - 2026-05-14
 
