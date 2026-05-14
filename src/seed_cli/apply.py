@@ -25,6 +25,7 @@ from .planning import plan as build_plan, PlanResult
 from .executor import execute_plan
 from .state.local import LocalStateBackend
 from .lock_heartbeat import LockHeartbeat
+from .content_sources import runtime_template_dir
 from .project_templates import prune_project_template_nodes, register_spec_project_templates
 from .security import validate_plan_paths
 
@@ -148,23 +149,24 @@ def apply(
                 base,
                 cleanup_materialized=True,
             )
-        result = execute_plan(
-            plan,
-            base,
-            dangerous=dangerous,
-            force=force,
-            dry_run=dry_run,
-            gitkeep=gitkeep,
-            template_dir=template_dir,
-            plugins=plugins,
-            interactive=interactive,
-            skip_optional=skip_optional,
-            include_optional=include_optional,
-            vars=vars,
-            step_hooks=step_hooks,
-            template_exclude=template_exclude,
-            template_skip_if_exists=template_skip_if_exists,
-        )
+        with runtime_template_dir(nodes or [], template_dir, enabled=not dry_run) as resolved_template_dir:
+            result = execute_plan(
+                plan,
+                base,
+                dangerous=dangerous,
+                force=force,
+                dry_run=dry_run,
+                gitkeep=gitkeep,
+                template_dir=resolved_template_dir,
+                plugins=plugins,
+                interactive=interactive,
+                skip_optional=skip_optional,
+                include_optional=include_optional,
+                vars=vars,
+                step_hooks=step_hooks,
+                template_exclude=template_exclude,
+                template_skip_if_exists=template_skip_if_exists,
+            )
     finally:
         if heartbeat:
             heartbeat.stop()

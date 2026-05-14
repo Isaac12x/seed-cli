@@ -8,6 +8,13 @@ from pathlib import Path
 from typing import Iterable, Iterator, List, TYPE_CHECKING
 
 from .logging import get_logger
+from .parsers import render_node_text
+from .spec_formats import (
+    TREE_LIKE_SUFFIXES,
+    preferred_tree_like_suffix,
+    resolve_tree_like_path,
+    strip_tree_like_suffix,
+)
 
 if TYPE_CHECKING:
     from .parsers import Node
@@ -90,19 +97,6 @@ def has_template_subtree(nodes: Iterable["Node"]) -> bool:
     return bool(_template_subtree_roots(nodes))
 
 
-def _render_node_name(node: "Node") -> str:
-    name = node.relpath.name
-    if node.is_dir:
-        name += "/"
-    if node.optional:
-        name += " ?"
-    if node.annotation and not node.annotation.startswith("template:"):
-        name += f" @{node.annotation}"
-    if node.comment:
-        name += f" ({node.comment})"
-    return name
-
-
 def _template_subtree_roots(nodes: Iterable["Node"]) -> list[Path]:
     node_list = list(nodes)
     template_paths = {
@@ -165,6 +159,7 @@ def _rebase_template_subtree(nodes: Iterable["Node"], parent: Path) -> list["Nod
             comment=node.comment,
             annotation=node.annotation,
             optional=node.optional,
+            metadata=dict(node.metadata),
         ))
     return rebased
 
@@ -185,7 +180,7 @@ def _render_tree_text(nodes: Iterable["Node"]) -> str:
         for index, child in enumerate(children):
             is_last = index == len(children) - 1
             branch = "└── " if is_last else "├── "
-            lines.append(f"{prefix}{branch}{_render_node_name(child)}")
+            lines.append(f"{prefix}{branch}{render_node_text(child, basename=True)}")
             if child.is_dir:
                 child_prefix = prefix + ("    " if is_last else "│   ")
                 walk(child.relpath, child_prefix)
@@ -194,13 +189,18 @@ def _render_tree_text(nodes: Iterable["Node"]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _write_project_template_subtrees(nodes: Iterable["Node"], start: Path) -> list[Path]:
+def _write_project_template_subtrees(
+    nodes: Iterable["Node"],
+    start: Path,
+    *,
+    spec_suffix: str = ".tree",
+) -> list[Path]:
     written: list[Path] = []
 
     for template_name, _, parent_relpath, subtree in _iter_template_subtrees(nodes):
         parent_dir = start.resolve() if parent_relpath == Path(".") else (start.resolve() / parent_relpath)
         templates_dir = get_local_project_templates_dir(parent_dir, create=True)
-        destination = templates_dir / f"{template_name}.tree"
+        destination = templates_dir / f"{template_name}{spec_suffix}"
         rebased_nodes = _rebase_template_subtree(subtree, parent_relpath)
         content = _render_tree_text(rebased_nodes)
         destination.write_text(content, encoding="utf-8")
@@ -242,12 +242,12 @@ def delete_materialized_project_templates(nodes: Iterable["Node"], start: Path) 
 
 
 def register_project_template(spec_path: Path | str, nodes: Iterable["Node"], start: Path) -> Path | None:
-    """Mirror a .tree spec into the project .seed directory."""
+    """Mirror a tree-like spec into the project .seed directory."""
     spec = Path(spec_path).resolve()
     if not spec.is_file():
         return None
 
-    if spec.suffix != ".tree":
+    if spec.suffix.lower() not in TREE_LIKE_SUFFIXES:
         return None
 
     seed_dir = get_project_seed_dir(start, create=True)
@@ -284,7 +284,12 @@ def register_spec_project_templates(
     """Register a template-capable spec and optionally clean up stale literal template paths."""
     node_list = list(nodes)
     mirrored_spec = register_project_template(spec_path, node_list, start)
-    project_templates = _write_project_template_subtrees(node_list, start) if has_template_subtree(node_list) else []
+    spec_suffix = preferred_tree_like_suffix(spec_path)
+    project_templates = (
+        _write_project_template_subtrees(node_list, start, spec_suffix=spec_suffix)
+        if has_template_subtree(node_list)
+        else []
+    )
     deleted_paths = delete_materialized_project_templates(node_list, start) if cleanup_materialized else []
     return ProjectTemplateRegistrationResult(
         mirrored_spec=mirrored_spec,
@@ -296,18 +301,15 @@ def register_spec_project_templates(
 def resolve_project_template_path(template_path: str, start: Path) -> Path:
     """Resolve a template path, treating .seed/... as project-root relative."""
     def resolve_tree_candidate(candidate: Path) -> Path | None:
-        if candidate.is_file():
-            return candidate
+        resolved = resolve_tree_like_path(candidate)
+        if resolved:
+            return resolved
 
         if candidate.is_dir():
-            nested_candidate = candidate / f"{candidate.name}.tree"
-            if nested_candidate.is_file():
-                return nested_candidate
-
-        if candidate.suffix != ".tree":
-            tree_candidate = candidate.with_suffix(".tree")
-            if tree_candidate.is_file():
-                return tree_candidate
+            for suffix in TREE_LIKE_SUFFIXES:
+                nested_candidate = candidate / f"{candidate.name}{suffix}"
+                if nested_candidate.is_file():
+                    return nested_candidate
 
         return None
 
@@ -365,8 +367,9 @@ def resolve_registered_project_template(template_name: str, start: Path) -> Path
     """Resolve a registered project template by name from nearest scope outward."""
     raw = Path(template_name)
     candidate_names = [raw]
-    if raw.suffix != ".tree":
-        candidate_names.insert(0, raw.with_suffix(".tree"))
+    if raw.suffix.lower() not in TREE_LIKE_SUFFIXES:
+        for suffix in TREE_LIKE_SUFFIXES:
+            candidate_names.insert(0, raw.with_suffix(suffix))
 
     for directory in iter_registered_project_template_dirs(start):
         for candidate_name in candidate_names:
@@ -391,8 +394,8 @@ def complete_registered_project_template_names(prefix: str, start: Path) -> List
             continue
 
         suggestion = rel.as_posix()
-        if rel.suffix == ".tree":
-            suggestion = rel.with_suffix("").as_posix()
+        if rel.suffix.lower() in TREE_LIKE_SUFFIXES:
+            suggestion = strip_tree_like_suffix(rel).as_posix()
         suggestions.add(suggestion)
 
     normalized_prefix = prefix or ""

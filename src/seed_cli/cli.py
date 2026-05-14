@@ -83,7 +83,7 @@ def parse_spec_file(spec_path: str, vars: dict, base: Path, plugins: list, conte
     """Parse a spec file (text, image, or graphviz) into nodes.
     
     Handles:
-    - Text files (.tree, .yaml, .json)
+    - Text files (.tree, .seed, .yaml, .json)
     - Image files (.png, .jpg, .jpeg)
     - Graphviz files (.dot)
     
@@ -161,7 +161,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Parse spec, run plugin parse + plan lifecycle, and output plan",
         help="Parse spec and generate execution plan",
     )
-    sp.add_argument("spec", help="Spec file (.tree, .yaml, .json, .dot, or image)")
+    sp.add_argument("spec", help="Spec file (.tree, .seed, .yaml, .json, .dot, or image)")
     sp.add_argument("--base", default=".", help="Base directory (default: current directory)")
     sp.add_argument("--vars", action="append", help="Template variables (key=value)")
     sp.add_argument("--out", help="Output plan to file (JSON format)")
@@ -188,7 +188,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Register template-capable specs into project .seed support files and remove stale literal placeholder paths",
         help="Register project-local templates from a spec",
     )
-    sreg.add_argument("spec", help="Spec file (.tree, .yaml, .json, .dot, or image)")
+    sreg.add_argument("spec", help="Spec file (.tree, .seed, .yaml, .json, .dot, or image)")
     sreg.add_argument("--base", default=".", help="Base directory (default: current directory)")
     sreg.add_argument("--vars", action="append", help="Template variables (key=value)")
 
@@ -442,6 +442,15 @@ def build_parser() -> argparse.ArgumentParser:
     specs_diff.add_argument("v1", help="First version (e.g., 1 or v1)")
     specs_diff.add_argument("v2", help="Second version (e.g., 2 or v2)")
     specs_diff.add_argument("--base", default=".", help="Base directory")
+
+    # specs watch
+    specs_watch = specs_sub.add_parser(
+        "watch",
+        description="Watch filesystem changes and capture spec history continuously",
+        help="Watch and capture spec history",
+    )
+    specs_watch.add_argument("--base", default=".", help="Base directory")
+    specs_watch.add_argument("--interval", type=float, default=1.0, help="Check interval in seconds")
 
     # templates - manage reusable specs from GitHub
     stpl = sub.add_parser(
@@ -847,7 +856,7 @@ def main(argv=None) -> int:
 
         if getattr(args, "template", None):
             if not Path(args.template).is_absolute():
-                print("Error: --template must be a full path to a .tree file")
+                print("Error: --template must be a full path to a .tree or .seed file")
                 return 1
             if not create_args:
                 print("Error: provide a target folder name or template values")
@@ -857,7 +866,7 @@ def main(argv=None) -> int:
                 print(f"Error: Template not found: {args.template}")
                 return 1
             if resolved_template.is_dir():
-                print(f"Error: Template path must point to a .tree file: {args.template}")
+                print(f"Error: Template path must point to a .tree or .seed file: {args.template}")
                 return 1
             spec_source = str(resolved_template)
             raw_values = create_args
@@ -884,7 +893,7 @@ def main(argv=None) -> int:
                 raw_values = [f"{var_name}={args.project}"]
         else:
             if not create_args:
-                print("Error: provide a template name and target folder, or use --template /full/path/to/spec.tree")
+                print("Error: provide a template name and target folder, or use --template /full/path/to/spec.tree or spec.seed")
                 return 1
             template_ref = create_args[0]
             raw_values = create_args[1:]
@@ -1055,6 +1064,7 @@ def main(argv=None) -> int:
             get_spec_version,
             get_current_spec,
             diff_spec_versions,
+            watch_specs,
         )
 
         # Default to list if no action specified
@@ -1113,6 +1123,13 @@ def main(argv=None) -> int:
             except ValueError as e:
                 print(f"Error: {e}")
                 return 1
+
+        if action == "watch":
+            try:
+                watch_specs(base, interval=args.interval, ignore=args.ignore)
+            except KeyboardInterrupt:
+                pass
+            return 0
 
         return 0
 

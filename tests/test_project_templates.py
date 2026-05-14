@@ -55,6 +55,24 @@ def test_register_spec_project_templates_extracts_subtree_template_at_template_p
     assert registered in result.project_templates
 
 
+def test_register_spec_project_templates_preserves_seed_extension_for_subtrees(tmp_path):
+    spec_file = tmp_path / "component.seed"
+    spec_file.write_text(
+        ".\n"
+        "└── vendor/\n"
+        "    └── <name>/ !service +remote -> https://github.com/acme/repo.git\n"
+        "        └── README.md\n"
+    )
+
+    _, nodes = parse_spec(str(spec_file), base=tmp_path)
+    result = register_spec_project_templates(spec_file, nodes, tmp_path, cleanup_materialized=True)
+
+    registered = tmp_path / "vendor" / ".seed" / "templates" / "project" / "name.seed"
+    assert registered.exists()
+    assert "!service +remote -> https://github.com/acme/repo.git" in registered.read_text()
+    assert registered in result.project_templates
+
+
 def test_register_spec_project_templates_handles_json_specs(tmp_path):
     spec_file = tmp_path / "component.json"
     spec_file.write_text(

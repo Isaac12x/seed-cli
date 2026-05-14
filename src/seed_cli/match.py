@@ -35,6 +35,7 @@ from .planning import plan as build_plan, PlanResult, PlanStep, DEFAULT_IGNORE, 
 from .executor import execute_plan
 from .state.local import LocalStateBackend
 from .lock_heartbeat import LockHeartbeat
+from .content_sources import runtime_template_dir
 from .security import validate_plan_paths
 
 _TEMPLATE_PATTERN = re.compile(r"<[a-zA-Z_][a-zA-Z0-9_]*>")
@@ -158,6 +159,7 @@ def _expand_templates(
                 is_dir=True,
                 comment=None,
                 annotation=None,
+                metadata={},
             ))
 
             # Add expanded children
@@ -170,6 +172,8 @@ def _expand_templates(
                     is_dir=child.is_dir,
                     comment=child.comment,
                     annotation=child.annotation if child.annotation and not child.annotation.startswith("template:") else None,
+                    optional=child.optional,
+                    metadata=dict(child.metadata),
                 ))
 
     return expanded
@@ -376,20 +380,21 @@ def match(
         heartbeat.start()
 
     try:
-        result = execute_plan(
-            plan,
-            base,
-            dangerous=True,  # We've already gated on dangerous flag
-            force=force,
-            dry_run=dry_run,
-            gitkeep=gitkeep,
-            template_dir=template_dir,
-            plugins=plugins,
-            interactive=interactive,
-            skip_optional=skip_optional,
-            include_optional=include_optional,
-            step_hooks=step_hooks,
-        )
+        with runtime_template_dir(nodes, template_dir, enabled=not dry_run) as resolved_template_dir:
+            result = execute_plan(
+                plan,
+                base,
+                dangerous=True,  # We've already gated on dangerous flag
+                force=force,
+                dry_run=dry_run,
+                gitkeep=gitkeep,
+                template_dir=resolved_template_dir,
+                plugins=plugins,
+                interactive=interactive,
+                skip_optional=skip_optional,
+                include_optional=include_optional,
+                step_hooks=step_hooks,
+            )
     finally:
         if heartbeat:
             heartbeat.stop()

@@ -13,8 +13,8 @@ Think **Terraform for directory trees**, plus **template scaffolding** and
 
 ## Highlights
 
-- Multiple spec inputs: `.tree`, YAML, JSON, DOT, image OCR, and stdin
-- Deterministic planning with exportable plans: `seed plan spec.tree --out plan.json`
+- Multiple spec inputs: `.tree`, `.seed`, YAML, JSON, DOT, image OCR, and stdin
+- Deterministic planning with exportable plans: `seed plan spec.seed --out plan.json`
 - Safe execution of immutable plans: `seed apply plan.json`
 - Drift workflows: `diff`, `sync`, `match`, snapshots, and spec history
 - Template variables in paths and content: `<varname>/` and `{{var}}`
@@ -65,7 +65,7 @@ seed maintain maintenance.yml --execute
 | --- | --- |
 | `plan` | Parse a spec and generate an execution plan |
 | `apply` | Apply a spec or a saved plan |
-| `register` | Register `.tree` specs into project `.seed/` files |
+| `register` | Register `.tree` or `.seed` specs into project `.seed/` files |
 | `sync` | Apply a spec and delete extras |
 | `diff` | Compare a spec with the filesystem |
 | `match` | Modify the filesystem to match a spec, respecting `...` |
@@ -77,7 +77,7 @@ seed maintain maintenance.yml --execute
 | `export` | Export a tree, JSON spec, plan, or DOT graph |
 | `lock` | Manage structure locks, versions, and watch mode |
 | `hooks` | Install git hooks |
-| `specs` | View captured spec history |
+| `specs` | View captured spec history and watch for changes |
 | `templates` | Manage reusable templates |
 | `utils` | `extract-tree` and `state-lock` helpers |
 
@@ -122,6 +122,8 @@ seed plan dir_structure.tree --target-mode exact
 
 ## Spec Syntax
 
+Use `.tree` for simple filesystem specs, or `.seed` when you want the same tree-shaped format plus richer inline metadata such as kinds, tags, and URLs.
+
 ### Basic Example
 
 ```text
@@ -143,6 +145,23 @@ scripts/
 - `...`: allow extras inside a directory
 - `<varname>/`: template directory placeholder
 - `{{var}}`: variable interpolation in file contents
+
+`.seed` also supports inline metadata markers:
+
+- `!kind`: semantic kind marker such as `!service`, `!doc`, or `!template`
+- `+tag`: repeatable tags such as `+remote +shared`
+- `-> URL`: attach a metadata URL to a node; on directory nodes this can be
+  used as a template content source
+
+Example:
+
+```text
+vendor/
+└── api/ !service +remote -> https://github.com/acme/repo.git
+```
+
+Structured YAML and JSON specs can also carry metadata with either a
+`metadata` object or top-level `kind`, `tags`, and `url` fields.
 
 ### Variable Usage
 
@@ -175,7 +194,7 @@ seed create releases.tree version_id=v3 --dry-run
 
 ### Project-Local Templates
 
-Use `seed register` to mirror any `.tree` spec into the project-level
+Use `seed register` to mirror any `.tree` or `.seed` spec into the project-level
 `.seed/templates/` directory. When the spec contains nested template subtrees,
 it also extracts them into `.seed/templates/project/`. `seed apply <spec>` runs
 the same registration step automatically before execution.
@@ -205,6 +224,7 @@ under `$SEED_HOME/templates/` when `SEED_HOME` is set.
 ```bash
 seed templates list
 seed templates add ./template.tree --name my-template
+seed templates add ./template.seed --name service-template
 seed templates show my-template
 seed templates use my-template
 seed templates versions my-template --add ./updated.tree --name v2
@@ -217,12 +237,16 @@ Built-in templates include `fastapi`, `python-package`, and `node-typescript`.
 
 ### Template Content Sources
 
-Templates can point at a local directory or a GitHub tree URL so seed can fetch
-real file contents alongside the structure spec.
+Templates can point at a local directory, a GitHub tree URL, or a git
+repository URL so seed can fetch real file contents alongside the structure
+spec. Repository sources are cloned without their `.git` metadata.
 
 ```bash
 seed templates add ./fastapi --name fastapi \
   --content-url https://github.com/tiangolo/full-stack-fastapi-template/tree/master/backend/app
+
+seed templates add ./service.seed --name service \
+  --content-url https://github.com/acme/service-skeleton.git
 
 seed templates update fastapi
 seed templates update --all
@@ -230,7 +254,13 @@ seed templates update fastapi --content-url /path/to/local/files
 ```
 
 Templates that include a `source.json` file with `{"content_url": "..."}` are
-fetched automatically when installed.
+fetched automatically when installed. `.seed` directory nodes can also declare
+their own content sources inline:
+
+```text
+vendor/
+└── api/ !service +remote -> https://github.com/acme/api-client.git
+```
 
 ### Copier-Style Scaffolding
 
@@ -369,7 +399,12 @@ Applied structures are also captured as versioned specs:
 seed specs list
 seed specs show
 seed specs diff v1 v3
+seed specs watch
 ```
+
+`seed specs watch` polls the workspace and writes a new `.seed/specs/vN.tree`
+whenever the filesystem structure changes, so manual file creation after an
+initial `apply` advances the internal reference automatically.
 
 Lock a filesystem structure and watch it for drift:
 

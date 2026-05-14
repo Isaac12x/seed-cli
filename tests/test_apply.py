@@ -157,3 +157,21 @@ def test_apply_deletes_stale_materialized_template_subtree_before_execution(tmp_
     assert not (tmp_path / "features" / "<name>").exists()
     assert (tmp_path / "features" / ".seed" / "templates" / "project" / "name.tree").exists()
     assert res["deleted"] == 1
+
+
+def test_apply_fetches_nested_directory_content_sources(tmp_path, monkeypatch):
+    spec = tmp_path / "spec.tree"
+    spec.write_text("vendor/ (https://github.com/acme/repo.git)\n")
+
+    def fake_materialize(sources, dest_dir, *, strict=False):
+        vendor_dir = dest_dir / "vendor"
+        vendor_dir.mkdir(parents=True, exist_ok=True)
+        (vendor_dir / "README.md").write_text("fetched", encoding="utf-8")
+        return [vendor_dir]
+
+    monkeypatch.setattr("seed_cli.content_sources.materialize_content_sources", fake_materialize)
+
+    res = apply(str(spec), tmp_path, dry_run=False)
+
+    assert (tmp_path / "vendor" / "README.md").read_text(encoding="utf-8") == "fetched"
+    assert res["created"] >= 1

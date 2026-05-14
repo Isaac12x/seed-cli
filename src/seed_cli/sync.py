@@ -22,6 +22,7 @@ from .planning import plan as build_plan
 from .executor import execute_plan
 from .state.local import LocalStateBackend
 from .lock_heartbeat import LockHeartbeat
+from .content_sources import runtime_template_dir
 from .security import validate_plan_paths
 
 
@@ -105,20 +106,21 @@ def sync(
         heartbeat.start()
 
     try:
-        result = execute_plan(
-            plan,
-            base,
-            dangerous=True,
-            force=force,
-            dry_run=dry_run,
-            gitkeep=gitkeep,
-            template_dir=template_dir,
-            plugins=plugins,
-            interactive=interactive,
-            skip_optional=skip_optional,
-            include_optional=include_optional,
-            step_hooks=step_hooks,
-        )
+        with runtime_template_dir(nodes, template_dir, enabled=not dry_run) as resolved_template_dir:
+            result = execute_plan(
+                plan,
+                base,
+                dangerous=True,
+                force=force,
+                dry_run=dry_run,
+                gitkeep=gitkeep,
+                template_dir=resolved_template_dir,
+                plugins=plugins,
+                interactive=interactive,
+                skip_optional=skip_optional,
+                include_optional=include_optional,
+                step_hooks=step_hooks,
+            )
     finally:
         if heartbeat:
             heartbeat.stop()

@@ -64,6 +64,15 @@ def test_cli_apply(tmp_path):
     assert (tmp_path / "x.txt").exists()
 
 
+def test_cli_apply_seed_spec(tmp_path):
+    spec = tmp_path / "spec.seed"
+    spec.write_text("vendor/ !service\nvendor/README.md")
+    code, out, err = run(["apply", "spec.seed"], tmp_path)
+    assert code == 0
+    assert (tmp_path / "vendor").is_dir()
+    assert (tmp_path / "vendor" / "README.md").exists()
+
+
 def test_cli_doctor(tmp_path):
     spec = tmp_path / "spec.tree"
     spec.write_text("a.txt\na.txt")
@@ -106,6 +115,16 @@ def test_cli_capture_out(tmp_path):
     assert code == 0
     assert (tmp_path / "spec.tree").exists()
     assert "test.txt" in (tmp_path / "spec.tree").read_text()
+
+
+def test_cli_specs_watch_parser():
+    from seed_cli.cli import build_parser
+
+    args = build_parser().parse_args(["specs", "watch", "--interval", "0.25"])
+
+    assert args.cmd == "specs"
+    assert args.specs_action == "watch"
+    assert args.interval == 0.25
 
 
 def test_cli_export_tree(tmp_path):

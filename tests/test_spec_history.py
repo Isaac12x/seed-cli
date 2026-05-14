@@ -20,6 +20,7 @@ from seed_cli.spec_history import (
     get_spec_version,
     get_current_spec,
     diff_spec_versions,
+    watch_specs,
 )
 
 
@@ -277,6 +278,53 @@ def test_capture_spec_with_ignore_patterns(tmp_path):
     content = result[1].read_text()
     assert "file.txt" in content
     assert "ignored.log" not in content
+
+
+def test_watch_specs_creates_initial_baseline(tmp_path):
+    """Should capture an initial baseline when none exists yet."""
+    class StopWatch(Exception):
+        pass
+
+    (tmp_path / "file.txt").write_text("content")
+    messages = []
+
+    def callback(msg_type, message):
+        messages.append((msg_type, message))
+        if msg_type == "captured" and "baseline" in message:
+            raise StopWatch()
+
+    with pytest.raises(StopWatch):
+        watch_specs(tmp_path, interval=0.01, callback=callback)
+
+    assert (tmp_path / SPECS_DIR / "v1.tree").exists()
+    assert any(msg_type == "captured" and "baseline" in message for msg_type, message in messages)
+
+
+def test_watch_specs_captures_new_file_creation(tmp_path):
+    """Should create a new spec version when a new file appears."""
+    class StopWatch(Exception):
+        pass
+
+    (tmp_path / "file1.txt").write_text("content")
+    capture_spec(tmp_path)
+
+    messages = []
+    created = {"done": False}
+
+    def callback(msg_type, message):
+        messages.append((msg_type, message))
+        if msg_type == "info" and "Ctrl+C" in message and not created["done"]:
+            (tmp_path / "file2.txt").write_text("new")
+            created["done"] = True
+        elif msg_type == "captured" and "v2" in message:
+            raise StopWatch()
+
+    with pytest.raises(StopWatch):
+        watch_specs(tmp_path, interval=0.01, callback=callback)
+
+    current = (tmp_path / SPECS_DIR / "current.tree").read_text()
+    assert "file2.txt" in current
+    assert any(msg_type == "captured" and "v2" in message for msg_type, message in messages)
 
 
 # -----------------------------------------------------------------------------

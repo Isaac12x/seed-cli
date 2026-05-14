@@ -60,3 +60,19 @@ def validate_document(doc: Dict[str, Any]) -> None:
 
         if "comment" in e and not isinstance(e["comment"], str):
             _err(f"entry {i} 'comment' must be string")
+
+        if "kind" in e and not isinstance(e["kind"], str):
+            _err(f"entry {i} 'kind' must be string")
+
+        if "url" in e and not isinstance(e["url"], str):
+            _err(f"entry {i} 'url' must be string")
+
+        if "tags" in e:
+            tags = e["tags"]
+            if not isinstance(tags, list) or any(not isinstance(tag, str) for tag in tags):
+                _err(f"entry {i} 'tags' must be a list of strings")
+
+        if "metadata" in e:
+            metadata = e["metadata"]
+            if not isinstance(metadata, dict):
+                _err(f"entry {i} 'metadata' must be an object")
