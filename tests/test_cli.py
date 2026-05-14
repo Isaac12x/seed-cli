@@ -360,6 +360,41 @@ def test_cli_create_with_registered_project_template(tmp_path):
     assert (features_dir / "users" / "api" / "route.ts").exists()
 
 
+def test_cli_create_with_registered_project_template_replaces_multiple_placeholders(tmp_path):
+    spec = tmp_path / "spec.tree"
+    spec.write_text(
+        ".\n"
+        "└── features/\n"
+        "    └── <domain>/\n"
+        "        └── <name>/\n"
+        "            └── route.ts\n"
+    )
+
+    code, out, err = run(["apply", "spec.tree"], tmp_path)
+    assert code == 0
+    assert (tmp_path / "features" / ".seed" / "templates" / "project" / "domain.tree").exists()
+
+    code, out, err = run(["create", "--project", "domain", "domain=billing", "name=invoices"], tmp_path / "features")
+
+    assert code == 0
+    assert (tmp_path / "features" / "billing" / "invoices" / "route.ts").exists()
+    assert not (tmp_path / "features" / "billing" / "<name>").exists()
+
+
+def test_cli_create_with_registered_placeholder_filename_template(tmp_path):
+    spec = tmp_path / "spec.tree"
+    spec.write_text("features/<name>.ts\n")
+
+    code, out, err = run(["apply", "spec.tree"], tmp_path)
+    assert code == 0
+    assert (tmp_path / "features" / ".seed" / "templates" / "project" / "name.tree").exists()
+
+    code, out, err = run(["create", "--project", "name", "name=users"], tmp_path / "features")
+
+    assert code == 0
+    assert (tmp_path / "features" / "users.ts").exists()
+
+
 def test_cli_create_finds_project_template_without_flag(tmp_path):
     template_dir = tmp_path / ".seed" / "templates" / "project"
     template_dir.mkdir(parents=True)

@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-import re
 
 from seed_cli import __version__
 from seed_cli.logging import setup_logging, get_logger
@@ -64,16 +63,10 @@ def _registered_project_template_completer(prefix, parsed_args, **kwargs):
 
 def _single_template_var_name(spec_path: str, base: Path) -> str | None:
     from seed_cli.parsers import parse_spec
+    from seed_cli.project_templates import template_variable_names
 
     _, nodes = parse_spec(spec_path, base=base)
-    names = sorted({
-        match.group(1)
-        for node in nodes
-        for annotation in [node.annotation or ""]
-        if annotation.startswith("template:")
-        for match in [re.match(r"template:([a-zA-Z_][a-zA-Z0-9_]*)$", annotation)]
-        if match
-    })
+    names = sorted(template_variable_names(nodes))
     if len(names) == 1:
         return names[0]
     return None

@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Iterator, List, TYPE_CHECKING
+from typing import Iterable, Iterator, List
 
 from .logging import get_logger
-from .parsers import render_node_text
+from .parsers import Node, render_node_text
 from .spec_formats import (
     TREE_LIKE_SUFFIXES,
     preferred_tree_like_suffix,
@@ -16,15 +17,14 @@ from .spec_formats import (
     strip_tree_like_suffix,
 )
 
-if TYPE_CHECKING:
-    from .parsers import Node
-
 
 log = get_logger("project_templates")
 
 SEED_DIR_NAME = ".seed"
 PROJECT_TEMPLATES_DIR_NAME = "templates"
 PROJECT_TEMPLATE_GROUP = "project"
+_TEMPLATE_VAR_RE = re.compile(r"<([a-zA-Z_][a-zA-Z0-9_]*)>")
+_TEMPLATE_ANNOTATION_RE = re.compile(r"^template:([a-zA-Z_][a-zA-Z0-9_]*)$")
 
 
 @dataclass
@@ -36,6 +36,14 @@ class ProjectTemplateRegistrationResult:
     @property
     def changed(self) -> bool:
         return bool(self.mirrored_spec or self.project_templates or self.deleted_paths)
+
+
+@dataclass(frozen=True)
+class TemplateSubtree:
+    name: str
+    relpath: Path
+    parent: Path
+    nodes: list[Node]
 
 
 def _iter_ancestors(start: Path) -> List[Path]:
@@ -93,46 +101,110 @@ def get_local_project_templates_dir(start: Path, *, create: bool = False) -> Pat
 
 
 def has_template_subtree(nodes: Iterable["Node"]) -> bool:
-    """Return True when the spec contains a template dir with children."""
+    """Return True when the spec contains a placeholder-backed template."""
     return bool(_template_subtree_roots(nodes))
 
 
-def _template_subtree_roots(nodes: Iterable["Node"]) -> list[Path]:
+def _annotation_template_name(annotation: str | None) -> str | None:
+    if not annotation:
+        return None
+    match = _TEMPLATE_ANNOTATION_RE.match(annotation)
+    return match.group(1) if match else None
+
+
+def _placeholder_names(text: str) -> list[str]:
+    names: list[str] = []
+    for name in _TEMPLATE_VAR_RE.findall(text):
+        if name not in names:
+            names.append(name)
+    return names
+
+
+def _template_name_from_path(path: Path) -> str | None:
+    names = _placeholder_names(path.name)
+    if not names:
+        return None
+    return "-".join(names)
+
+
+def template_variable_names(nodes: Iterable["Node"]) -> list[str]:
+    """Return unique placeholder variable names found in template annotations or paths."""
+    names: list[str] = []
+    for node in nodes:
+        annotation_name = _annotation_template_name(node.annotation)
+        if annotation_name and annotation_name not in names:
+            names.append(annotation_name)
+        for part in node.relpath.parts:
+            for name in _placeholder_names(part):
+                if name not in names:
+                    names.append(name)
+    return names
+
+
+def _first_placeholder_root(path: Path) -> Path | None:
+    parts = path.parts
+    for index, part in enumerate(parts):
+        if _TEMPLATE_VAR_RE.search(part):
+            return Path(*parts[: index + 1])
+    return None
+
+
+def _is_relative_to(path: Path, parent: Path) -> bool:
+    return path == parent or parent in path.parents
+
+
+def _template_subtree_root_specs(nodes: Iterable["Node"]) -> list[tuple[str, Path]]:
     node_list = list(nodes)
-    template_paths = {
-        node.relpath
-        for node in node_list
-        if (node.annotation or "").startswith("template:")
-    }
-    if not template_paths:
-        return []
+    candidates: dict[Path, str] = {}
 
-    return sorted(
-        {
-            template_path
-            for template_path in template_paths
-            if any(template_path in node.relpath.parents for node in node_list)
-        },
-        key=lambda path: path.as_posix(),
-    )
-
-
-def _iter_template_subtrees(nodes: Iterable["Node"]) -> Iterator[tuple[str, Path, Path, list["Node"]]]:
-    node_list = list(nodes)
-    template_roots = set(_template_subtree_roots(node_list))
     for node in node_list:
-        annotation = node.annotation or ""
-        if not annotation.startswith("template:") or node.relpath not in template_roots:
-            continue
+        annotation_name = _annotation_template_name(node.annotation)
+        if annotation_name:
+            candidates[node.relpath] = annotation_name
 
-        template_path = node.relpath
+        placeholder_root = _first_placeholder_root(node.relpath)
+        if placeholder_root:
+            template_name = _template_name_from_path(placeholder_root)
+            if template_name:
+                candidates.setdefault(placeholder_root, template_name)
+
+    selected: list[tuple[str, Path]] = []
+    for path, name in sorted(candidates.items(), key=lambda item: (len(item[0].parts), item[0].as_posix())):
+        if any(_is_relative_to(path, selected_path) and path != selected_path for _, selected_path in selected):
+            continue
+        if not any(_is_relative_to(node.relpath, path) for node in node_list):
+            continue
+        selected.append((name, path))
+
+    return sorted(selected, key=lambda item: item[1].as_posix())
+
+
+def _template_subtree_roots(nodes: Iterable["Node"]) -> list[Path]:
+    return [path for _, path in _template_subtree_root_specs(nodes)]
+
+
+def _iter_template_subtrees(nodes: Iterable["Node"]) -> Iterator[TemplateSubtree]:
+    node_list = list(nodes)
+    for template_name, template_path in _template_subtree_root_specs(node_list):
         subtree = [
             child
             for child in node_list
-            if child.relpath == template_path or template_path in child.relpath.parents
+            if _is_relative_to(child.relpath, template_path)
         ]
+        if not subtree:
+            continue
 
-        yield annotation.split(":", 1)[1], template_path, template_path.parent, subtree
+        yield TemplateSubtree(
+            name=template_name,
+            relpath=template_path,
+            parent=template_path.parent,
+            nodes=subtree,
+        )
+
+
+def iter_template_subtrees(nodes: Iterable["Node"]) -> Iterator[TemplateSubtree]:
+    """Yield inferred project-template subtrees for annotated or placeholder paths."""
+    yield from _iter_template_subtrees(nodes)
 
 
 def prune_project_template_nodes(nodes: Iterable["Node"]) -> list["Node"]:
@@ -162,6 +234,19 @@ def _rebase_template_subtree(nodes: Iterable["Node"], parent: Path) -> list["Nod
             metadata=dict(node.metadata),
         ))
     return rebased
+
+
+def _with_implicit_directory_nodes(nodes: Iterable["Node"]) -> list["Node"]:
+    node_list = list(nodes)
+    nodes_by_path = {node.relpath: node for node in node_list}
+
+    for node in node_list:
+        for parent in node.relpath.parents:
+            if parent == Path("."):
+                break
+            nodes_by_path.setdefault(parent, Node(relpath=parent, is_dir=True))
+
+    return list(nodes_by_path.values())
 
 
 def _render_tree_text(nodes: Iterable["Node"]) -> str:
@@ -197,15 +282,16 @@ def _write_project_template_subtrees(
 ) -> list[Path]:
     written: list[Path] = []
 
-    for template_name, _, parent_relpath, subtree in _iter_template_subtrees(nodes):
+    for subtree in _iter_template_subtrees(nodes):
+        parent_relpath = subtree.parent
         parent_dir = start.resolve() if parent_relpath == Path(".") else (start.resolve() / parent_relpath)
         templates_dir = get_local_project_templates_dir(parent_dir, create=True)
-        destination = templates_dir / f"{template_name}{spec_suffix}"
-        rebased_nodes = _rebase_template_subtree(subtree, parent_relpath)
+        destination = templates_dir / f"{subtree.name}{spec_suffix}"
+        rebased_nodes = _with_implicit_directory_nodes(_rebase_template_subtree(subtree.nodes, parent_relpath))
         content = _render_tree_text(rebased_nodes)
         destination.write_text(content, encoding="utf-8")
         written.append(destination)
-        log.debug("Registered project subtree template %s -> %s", template_name, destination)
+        log.debug("Registered project subtree template %s -> %s", subtree.name, destination)
 
     return written
 
@@ -215,8 +301,8 @@ def materialized_project_template_paths(nodes: Iterable["Node"], start: Path) ->
     materialized_paths: list[Path] = []
     seen: set[Path] = set()
 
-    for _, template_path, _, _ in _iter_template_subtrees(nodes):
-        candidate = (start.resolve() / template_path).resolve()
+    for subtree in _iter_template_subtrees(nodes):
+        candidate = (start.resolve() / subtree.relpath).resolve()
         if candidate not in seen:
             seen.add(candidate)
             materialized_paths.append(candidate)

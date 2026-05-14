@@ -36,7 +36,8 @@ from .executor import execute_plan
 from .state.local import LocalStateBackend
 from .lock_heartbeat import LockHeartbeat
 from .content_sources import runtime_template_dir
-from .security import validate_plan_paths
+from .project_templates import iter_template_subtrees, template_variable_names
+from .security import safe_target_path, validate_plan_paths
 
 _TEMPLATE_PATTERN = re.compile(r"<[a-zA-Z_][a-zA-Z0-9_]*>")
 
@@ -77,20 +78,13 @@ def _extract_templates(nodes: List[Node]) -> Dict[str, List[Node]]:
     """
     templates: Dict[str, List[Node]] = {}
 
-    for node in nodes:
-        path = node.relpath.as_posix()
-        annotation = node.annotation or ""
-
-        if annotation.startswith("template:"):
-            # This is a template directory marker
-            templates[path] = []
-
-    # Now collect children of each template
-    for node in nodes:
-        path = node.relpath.as_posix()
-        for template_path in templates:
-            if path.startswith(template_path + "/"):
-                templates[template_path].append(node)
+    for subtree in iter_template_subtrees(nodes):
+        template_path = subtree.relpath.as_posix()
+        templates[template_path] = [
+            node
+            for node in subtree.nodes
+            if node.relpath != subtree.relpath
+        ]
 
     return templates
 
@@ -440,63 +434,91 @@ def create_from_template(
     base = base.resolve()
 
     from .parsers import parse_spec
-    _, nodes = parse_spec(spec_path, base=base)
+    _, nodes = parse_spec(spec_path, vars=template_values, base=base)
 
-    # Find template nodes and their children
-    templates = _extract_templates(nodes)
+    template_subtrees = list(iter_template_subtrees(nodes))
 
-    if not templates:
+    if not template_subtrees:
         raise ValueError("No template patterns (<varname>/) found in spec")
 
-    # Find matching template for provided values
     created_paths: List[str] = []
+    seen_paths: Set[str] = set()
+    missing_values: Set[str] = set()
 
-    for template_path, children in templates.items():
-        # Extract variable name from template path (e.g., "files/<version_id>" -> "version_id")
-        template_name = Path(template_path).name  # e.g., "<version_id>"
-        var_match = re.match(r"<([a-zA-Z_][a-zA-Z0-9_]*)>", template_name)
-        if not var_match:
-            continue
+    def record_path(path: str) -> None:
+        if path not in seen_paths:
+            seen_paths.add(path)
+            created_paths.append(path)
 
-        var_name = var_match.group(1)
-        if var_name not in template_values:
-            continue
+    def render_template_path(path: str) -> Optional[str]:
+        missing_value = False
 
-        value = template_values[var_name]
+        def replace(match: re.Match[str]) -> str:
+            nonlocal missing_value
+            name = match.group(0)[1:-1]
+            if name not in template_values:
+                missing_value = True
+                return match.group(0)
+            return template_values[name]
 
-        # Calculate the parent path
-        parent_path = str(Path(template_path).parent)
-        if parent_path == ".":
-            concrete_dir_path = value
-        else:
-            concrete_dir_path = f"{parent_path}/{value}"
+        rendered = _TEMPLATE_PATTERN.sub(replace, path)
+        return None if missing_value else rendered
 
-        # Create the directory
-        concrete_dir = base / concrete_dir_path
+    def create_path(path: str, *, is_dir: bool) -> None:
+        target = safe_target_path(base, path)
         if not dry_run:
-            concrete_dir.mkdir(parents=True, exist_ok=True)
-        created_paths.append(concrete_dir_path)
+            if is_dir:
+                target.mkdir(parents=True, exist_ok=True)
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.touch()
+        record_path(path)
 
-        # Create children
-        for child in children:
+    subtree_roots = [subtree.relpath for subtree in template_subtrees]
+
+    def is_template_subtree_path(path: Path) -> bool:
+        return any(path == root or root in path.parents for root in subtree_roots)
+
+    for node in nodes:
+        node_path = node.relpath.as_posix()
+        if node_path in ("", "."):
+            continue
+        if node.annotation == "extras" or node_path == "..." or node_path.endswith("/..."):
+            continue
+        if is_template_subtree_path(node.relpath):
+            continue
+
+        concrete_path = render_template_path(node_path)
+        if concrete_path is None or concrete_path in ("", "."):
+            continue
+        create_path(concrete_path, is_dir=node.is_dir)
+
+    for subtree in template_subtrees:
+        missing_for_subtree = [
+            name
+            for name in template_variable_names(subtree.nodes)
+            if name not in template_values
+        ]
+        if missing_for_subtree:
+            missing_values.update(missing_for_subtree)
+            continue
+
+        for child in subtree.nodes:
             child_path = child.relpath.as_posix()
-            # Replace template path with concrete path
-            concrete_path = child_path.replace(template_path, concrete_dir_path)
-
-            # Skip marker nodes
-            if concrete_path.endswith("..."):
+            if child_path in ("", "."):
+                continue
+            if child.annotation == "extras" or child_path == "..." or child_path.endswith("/..."):
                 continue
 
-            target = base / concrete_path
-            if child.is_dir:
-                if not dry_run:
-                    target.mkdir(parents=True, exist_ok=True)
-                created_paths.append(concrete_path)
-            else:
-                if not dry_run:
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    target.touch()
-                created_paths.append(concrete_path)
+            concrete_path = render_template_path(child_path)
+            if concrete_path is None or concrete_path in ("", "."):
+                continue
+
+            create_path(concrete_path, is_dir=child.is_dir)
+
+    if not created_paths and missing_values:
+        missing = ", ".join(sorted(missing_values))
+        raise ValueError(f"Missing template values: {missing}")
 
     return {
         "created": len(created_paths),

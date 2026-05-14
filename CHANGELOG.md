@@ -4,6 +4,9 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- Made project-template registration infer placeholder templates from path-line specs, and made `seed create` materialize non-template file entries as empty files.
+
 ## [1.0.9] - 2026-05-14
 
 ### Added

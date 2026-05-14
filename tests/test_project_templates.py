@@ -55,6 +55,63 @@ def test_register_spec_project_templates_extracts_subtree_template_at_template_p
     assert registered in result.project_templates
 
 
+def test_register_spec_project_templates_infers_path_line_placeholder_template(tmp_path):
+    spec_file = tmp_path / "component.tree"
+    spec_file.write_text("features/<name>/api/route.ts\n")
+
+    _, nodes = parse_spec(str(spec_file), base=tmp_path)
+    result = register_spec_project_templates(spec_file, nodes, tmp_path, cleanup_materialized=True)
+
+    registered = tmp_path / "features" / ".seed" / "templates" / "project" / "name.tree"
+    assert registered.exists()
+    assert registered.read_text() == (
+        ".\n"
+        "└── <name>/\n"
+        "    └── api/\n"
+        "        └── route.ts\n"
+    )
+    assert registered in result.project_templates
+
+
+def test_register_spec_project_templates_infers_placeholder_filename_template(tmp_path):
+    spec_file = tmp_path / "component.tree"
+    spec_file.write_text("features/<name>.ts\n")
+
+    _, nodes = parse_spec(str(spec_file), base=tmp_path)
+    result = register_spec_project_templates(spec_file, nodes, tmp_path, cleanup_materialized=True)
+
+    registered = tmp_path / "features" / ".seed" / "templates" / "project" / "name.tree"
+    assert registered.exists()
+    assert registered.read_text() == ".\n└── <name>.ts\n"
+    assert registered in result.project_templates
+
+
+def test_register_spec_project_templates_uses_outermost_placeholder_for_nested_templates(tmp_path):
+    spec_file = tmp_path / "component.tree"
+    spec_file.write_text(
+        ".\n"
+        "└── features/\n"
+        "    └── <domain>/\n"
+        "        └── <name>/\n"
+        "            └── route.ts\n"
+    )
+
+    _, nodes = parse_spec(str(spec_file), base=tmp_path)
+    result = register_spec_project_templates(spec_file, nodes, tmp_path, cleanup_materialized=True)
+
+    registered = tmp_path / "features" / ".seed" / "templates" / "project" / "domain.tree"
+    assert registered.exists()
+    assert registered.read_text() == (
+        ".\n"
+        "└── <domain>/\n"
+        "    └── <name>/\n"
+        "        └── route.ts\n"
+    )
+    assert registered in result.project_templates
+    assert all(path.exists() for path in result.project_templates)
+    assert not (tmp_path / "features" / "<domain>").exists()
+
+
 def test_register_spec_project_templates_preserves_seed_extension_for_subtrees(tmp_path):
     spec_file = tmp_path / "component.seed"
     spec_file.write_text(
@@ -93,17 +150,20 @@ def test_register_spec_project_templates_handles_json_specs(tmp_path):
     assert registered.exists()
 
 
-def test_register_spec_project_templates_skips_specs_without_template_children(tmp_path):
+def test_register_spec_project_templates_registers_directory_only_placeholder_template(tmp_path):
     spec_file = tmp_path / "component.tree"
     spec_file.write_text("features/\n└── <name>/\n")
 
     _, nodes = parse_spec(str(spec_file), base=tmp_path)
     result = register_spec_project_templates(spec_file, nodes, tmp_path, cleanup_materialized=True)
 
-    assert has_template_subtree(nodes) is False
+    registered = tmp_path / ".seed" / "templates" / "project" / "name.tree"
+    assert has_template_subtree(nodes) is True
     assert (tmp_path / ".seed" / "templates" / "component.tree").exists()
     assert result.mirrored_spec == (tmp_path / ".seed" / "templates" / "component.tree")
-    assert result.project_templates == []
+    assert registered.exists()
+    assert registered.read_text() == ".\n└── <name>/\n"
+    assert result.project_templates == [registered]
 
 
 def test_register_spec_project_templates_skips_non_tree_spec_without_template_children(tmp_path):

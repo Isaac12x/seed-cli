@@ -644,6 +644,32 @@ def test_create_from_template_returns_paths(tmp_path):
     assert any("b.txt" in p for p in result["paths"])
 
 
+def test_create_from_template_creates_static_seed_files_empty(tmp_path):
+    """Should create non-template file entries from a .seed template as empty files."""
+    spec_path = tmp_path / "spec.seed"
+    spec_path.write_text(""".
+├── <name>/
+│   └── app.py
+├── README.md
+└── docs/
+    └── notes.md
+""")
+
+    result = create_from_template(
+        str(spec_path),
+        tmp_path,
+        {"name": "demo"},
+    )
+
+    assert (tmp_path / "demo" / "app.py").is_file()
+    assert (tmp_path / "README.md").is_file()
+    assert (tmp_path / "docs" / "notes.md").is_file()
+    assert (tmp_path / "README.md").read_text() == ""
+    assert (tmp_path / "docs" / "notes.md").read_text() == ""
+    assert "README.md" in result["paths"]
+    assert "docs/notes.md" in result["paths"]
+
+
 def test_create_from_template_root_level_template(tmp_path):
     """Should handle template at root level."""
     spec_path = tmp_path / "spec.tree"
