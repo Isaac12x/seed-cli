@@ -36,7 +36,12 @@ from .executor import execute_plan
 from .state.local import LocalStateBackend
 from .lock_heartbeat import LockHeartbeat
 from .content_sources import runtime_template_dir
-from .project_templates import iter_template_subtrees, template_variable_names
+from .project_templates import (
+    iter_template_subtrees,
+    path_has_template_variable,
+    render_template_path,
+    template_variable_names,
+)
 from .security import safe_target_path, validate_plan_paths
 
 _TEMPLATE_PATTERN = re.compile(r"<[a-zA-Z_][a-zA-Z0-9_]*>")
@@ -119,7 +124,7 @@ def _expand_templates(
             continue
 
         # Check if path contains a template variable
-        if _TEMPLATE_PATTERN.search(path):
+        if path_has_template_variable(path):
             continue
 
         expanded.append(node)
@@ -450,20 +455,6 @@ def create_from_template(
             seen_paths.add(path)
             created_paths.append(path)
 
-    def render_template_path(path: str) -> Optional[str]:
-        missing_value = False
-
-        def replace(match: re.Match[str]) -> str:
-            nonlocal missing_value
-            name = match.group(0)[1:-1]
-            if name not in template_values:
-                missing_value = True
-                return match.group(0)
-            return template_values[name]
-
-        rendered = _TEMPLATE_PATTERN.sub(replace, path)
-        return None if missing_value else rendered
-
     def create_path(path: str, *, is_dir: bool) -> None:
         target = safe_target_path(base, path)
         if not dry_run:
@@ -488,7 +479,7 @@ def create_from_template(
         if is_template_subtree_path(node.relpath):
             continue
 
-        concrete_path = render_template_path(node_path)
+        concrete_path = render_template_path(node_path, template_values)
         if concrete_path is None or concrete_path in ("", "."):
             continue
         create_path(concrete_path, is_dir=node.is_dir)
@@ -510,7 +501,7 @@ def create_from_template(
             if child.annotation == "extras" or child_path == "..." or child_path.endswith("/..."):
                 continue
 
-            concrete_path = render_template_path(child_path)
+            concrete_path = render_template_path(child_path, template_values)
             if concrete_path is None or concrete_path in ("", "."):
                 continue
 

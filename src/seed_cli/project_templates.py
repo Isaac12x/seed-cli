@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import shutil
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Iterator, List
@@ -24,6 +25,7 @@ SEED_DIR_NAME = ".seed"
 PROJECT_TEMPLATES_DIR_NAME = "templates"
 PROJECT_TEMPLATE_GROUP = "project"
 _TEMPLATE_VAR_RE = re.compile(r"<([a-zA-Z_][a-zA-Z0-9_]*)>")
+_BARE_TEMPLATE_VAR_RE = re.compile(r"^[A-Z][A-Z0-9_]*_ID$")
 _TEMPLATE_ANNOTATION_RE = re.compile(r"^template:([a-zA-Z_][a-zA-Z0-9_]*)$")
 
 
@@ -117,14 +119,23 @@ def _placeholder_names(text: str) -> list[str]:
     for name in _TEMPLATE_VAR_RE.findall(text):
         if name not in names:
             names.append(name)
+    if _BARE_TEMPLATE_VAR_RE.match(text) and text not in names:
+        names.append(text)
     return names
+
+
+def _template_filename_part(name: str) -> str:
+    if name.isupper() and name.endswith("_ID"):
+        name = name[:-3]
+    normalized = re.sub(r"[^a-zA-Z0-9]+", "_", name).strip("_").lower()
+    return normalized or "template"
 
 
 def _template_name_from_path(path: Path) -> str | None:
     names = _placeholder_names(path.name)
     if not names:
         return None
-    return "-".join(names)
+    return "-".join(_template_filename_part(name) for name in names)
 
 
 def template_variable_names(nodes: Iterable["Node"]) -> list[str]:
@@ -141,10 +152,43 @@ def template_variable_names(nodes: Iterable["Node"]) -> list[str]:
     return names
 
 
+def path_has_template_variable(path: Path | str) -> bool:
+    """Return True when a path contains an angle or bare project-template variable."""
+    return any(_placeholder_names(part) for part in Path(path).parts)
+
+
+def render_template_path(path: str, template_values: dict[str, str]) -> str | None:
+    """Render angle placeholders and bare uppercase *_ID path segments."""
+    missing_value = False
+
+    def replace_angle(match: re.Match[str]) -> str:
+        nonlocal missing_value
+        name = match.group(1)
+        if name not in template_values:
+            missing_value = True
+            return match.group(0)
+        return template_values[name]
+
+    rendered = _TEMPLATE_VAR_RE.sub(replace_angle, path)
+
+    parts: list[str] = []
+    for part in rendered.split("/"):
+        if _BARE_TEMPLATE_VAR_RE.match(part):
+            if part not in template_values:
+                missing_value = True
+                parts.append(part)
+            else:
+                parts.append(template_values[part])
+        else:
+            parts.append(part)
+
+    return None if missing_value else "/".join(parts)
+
+
 def _first_placeholder_root(path: Path) -> Path | None:
     parts = path.parts
     for index, part in enumerate(parts):
-        if _TEMPLATE_VAR_RE.search(part):
+        if _placeholder_names(part):
             return Path(*parts[: index + 1])
     return None
 
@@ -160,7 +204,7 @@ def _template_subtree_root_specs(nodes: Iterable["Node"]) -> list[tuple[str, Pat
     for node in node_list:
         annotation_name = _annotation_template_name(node.annotation)
         if annotation_name:
-            candidates[node.relpath] = annotation_name
+            candidates[node.relpath] = _template_filename_part(annotation_name)
 
         placeholder_root = _first_placeholder_root(node.relpath)
         if placeholder_root:
@@ -274,6 +318,47 @@ def _render_tree_text(nodes: Iterable["Node"]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _template_scope_prefix(path: Path) -> str | None:
+    for part in path.parts:
+        if part in ("", "."):
+            continue
+        if _placeholder_names(part):
+            return None
+        return _template_filename_part(part)
+    return None
+
+
+def _project_scope_template_names(subtrees: list[TemplateSubtree]) -> list[str]:
+    name_counts = Counter(subtree.name for subtree in subtrees)
+    used: Counter[str] = Counter()
+    names: list[str] = []
+
+    for subtree in subtrees:
+        base_name = subtree.name
+        if name_counts[base_name] > 1:
+            prefix = _template_scope_prefix(subtree.relpath)
+            if prefix:
+                base_name = f"{prefix}_{base_name}"
+
+        name = base_name
+        used[name] += 1
+        if used[name] > 1:
+            name = f"{base_name}_{used[name]}"
+        names.append(name)
+
+    return names
+
+
+def _write_template_subtree(
+    subtree: TemplateSubtree,
+    destination: Path,
+) -> None:
+    rebased_nodes = _with_implicit_directory_nodes(_rebase_template_subtree(subtree.nodes, subtree.parent))
+    content = _render_tree_text(rebased_nodes)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(content, encoding="utf-8")
+
+
 def _write_project_template_subtrees(
     nodes: Iterable["Node"],
     start: Path,
@@ -281,17 +366,30 @@ def _write_project_template_subtrees(
     spec_suffix: str = ".tree",
 ) -> list[Path]:
     written: list[Path] = []
+    written_set: set[Path] = set()
+    subtrees = list(_iter_template_subtrees(nodes))
+    project_scope_names = _project_scope_template_names(subtrees)
 
-    for subtree in _iter_template_subtrees(nodes):
+    def write_once(subtree: TemplateSubtree, destination: Path) -> None:
+        resolved = destination.resolve()
+        if resolved in written_set:
+            return
+        _write_template_subtree(subtree, destination)
+        written_set.add(resolved)
+        written.append(destination)
+
+    for subtree, project_scope_name in zip(subtrees, project_scope_names):
         parent_relpath = subtree.parent
         parent_dir = start.resolve() if parent_relpath == Path(".") else (start.resolve() / parent_relpath)
         templates_dir = get_local_project_templates_dir(parent_dir, create=True)
         destination = templates_dir / f"{subtree.name}{spec_suffix}"
-        rebased_nodes = _with_implicit_directory_nodes(_rebase_template_subtree(subtree.nodes, parent_relpath))
-        content = _render_tree_text(rebased_nodes)
-        destination.write_text(content, encoding="utf-8")
-        written.append(destination)
+        write_once(subtree, destination)
         log.debug("Registered project subtree template %s -> %s", subtree.name, destination)
+
+        project_templates_dir = get_registered_project_templates_dir(start, create=True)
+        project_destination = project_templates_dir / f"{project_scope_name}{spec_suffix}"
+        write_once(subtree, project_destination)
+        log.debug("Registered project subtree template %s -> %s", project_scope_name, project_destination)
 
     return written
 
@@ -439,13 +537,17 @@ def list_registered_project_templates(start: Path) -> List[Path]:
     """List all registered project templates visible from start."""
     templates: List[Path] = []
     seen: set[Path] = set()
+    seen_relative_names: set[Path] = set()
     for directory in iter_registered_project_template_dirs(start):
         for path in sorted(directory.rglob("*")):
             if path.is_file():
                 resolved = path.resolve()
-                if resolved not in seen:
-                    seen.add(resolved)
-                    templates.append(resolved)
+                rel = path.relative_to(directory)
+                if resolved in seen or rel in seen_relative_names:
+                    continue
+                seen.add(resolved)
+                seen_relative_names.add(rel)
+                templates.append(resolved)
     return templates
 
 

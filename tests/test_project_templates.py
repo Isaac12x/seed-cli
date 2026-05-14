@@ -130,6 +130,31 @@ def test_register_spec_project_templates_preserves_seed_extension_for_subtrees(t
     assert registered in result.project_templates
 
 
+def test_register_filestructure_seed_captures_duplicate_run_subtemplates_at_project_scope(tmp_path):
+    spec_file = tmp_path / "FILESTRUCTURE.seed"
+    spec_file.write_text(
+        ".\n"
+        "├── project/\n"
+        "│   └── RUN_ID/ (some files)\n"
+        "│       └── project.json\n"
+        "└── agent/\n"
+        "    └── RUN_ID/ (some files)\n"
+        "        └── agent.json\n"
+    )
+
+    _, nodes = parse_spec(str(spec_file), base=tmp_path)
+    result = register_spec_project_templates(spec_file, nodes, tmp_path, cleanup_materialized=True)
+
+    project_template = tmp_path / ".seed" / "templates" / "project" / "project_run.seed"
+    agent_template = tmp_path / ".seed" / "templates" / "project" / "agent_run.seed"
+    assert project_template.exists()
+    assert project_template.read_text() == ".\n└── RUN_ID/ (some files)\n    └── project.json\n"
+    assert agent_template.exists()
+    assert agent_template.read_text() == ".\n└── RUN_ID/ (some files)\n    └── agent.json\n"
+    assert project_template in result.project_templates
+    assert agent_template in result.project_templates
+
+
 def test_register_spec_project_templates_handles_json_specs(tmp_path):
     spec_file = tmp_path / "component.json"
     spec_file.write_text(

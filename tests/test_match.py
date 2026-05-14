@@ -644,6 +644,26 @@ def test_create_from_template_returns_paths(tmp_path):
     assert any("b.txt" in p for p in result["paths"])
 
 
+def test_create_from_template_replaces_bare_uppercase_id_placeholder(tmp_path):
+    """Should replace bare uppercase *_ID placeholders in project templates."""
+    spec_path = tmp_path / "project_run.seed"
+    spec_path.write_text(""".
+└── RUN_ID/ (some files)
+    └── project.json
+""")
+
+    result = create_from_template(
+        str(spec_path),
+        tmp_path,
+        {"RUN_ID": "run-123"},
+    )
+
+    assert result["created"] == 2
+    assert (tmp_path / "run-123").is_dir()
+    assert (tmp_path / "run-123" / "project.json").exists()
+    assert "run-123/project.json" in result["paths"]
+
+
 def test_create_from_template_creates_static_seed_files_empty(tmp_path):
     """Should create non-template file entries from a .seed template as empty files."""
     spec_path = tmp_path / "spec.seed"

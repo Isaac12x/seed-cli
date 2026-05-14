@@ -5,6 +5,7 @@ All notable changes to this project are documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- Captured all project-template subtrees from `FILESTRUCTURE.seed`-style specs into the project `.seed/templates/project/` scope, including duplicate `RUN_ID` subtemplates disambiguated as names such as `project_run.seed` and `agent_run.seed`.
 - Made project-template registration infer placeholder templates from any `<var>` in spec paths, including path-line specs, placeholder filenames, and templates with multiple placeholders.
 - Made `seed create` substitute all placeholder values in selected templates so nested placeholders such as `<name>` are not left in created paths.
 
