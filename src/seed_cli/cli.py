@@ -62,6 +62,35 @@ def _registered_project_template_completer(prefix, parsed_args, **kwargs):
     return complete_registered_project_template_names(prefix, base)
 
 
+def _discover_default_spec(base: Path) -> Path | None:
+    """Find a single default spec in ``base`` for bare ``seed`` runs."""
+    candidates = sorted(
+        p
+        for p in base.iterdir()
+        if p.is_file() and p.suffix.lower() in {".seed", ".tree"}
+    )
+    if not candidates:
+        return None
+    if len(candidates) > 1:
+        names = ", ".join(p.name for p in candidates)
+        raise ValueError(
+            "multiple default specs found; run `seed apply <spec>` explicitly "
+            f"({names})"
+        )
+    return candidates[0]
+
+
+def _configure_default_apply(args, spec: Path) -> None:
+    """Populate apply-shaped argparse attributes for bare ``seed`` execution."""
+    args.cmd = "apply"
+    args.spec = str(spec)
+    args.base = "."
+    args.dangerous = False
+    args.dry_run = False
+    args.yes = False
+    args.skip_optional = False
+
+
 def _single_template_var_name(spec_path: str, base: Path) -> str | None:
     from seed_cli.parsers import parse_spec
 
@@ -588,19 +617,27 @@ def main(argv=None) -> int:
 
     args = parser.parse_args(argv or sys.argv[1:])
     
-    # If no command provided, show available commands
+    # If no command provided, auto-apply a single .seed/.tree spec in cwd.
     if not args.cmd:
-        print("seed: error: no command provided\n")
-        print("Available commands:")
-        subparsers = parser._subparsers._group_actions[0]
-        for name, subparser in sorted(subparsers.choices.items()):
-            help_text = getattr(subparser, 'help', '') or getattr(subparser, 'description', '')
-            if help_text:
-                print(f"  {name:12} {help_text}")
-            else:
-                print(f"  {name}")
-        print("\nUse 'seed <command> -h' for help on a specific command.")
-        return 1
+        try:
+            default_spec = _discover_default_spec(Path.cwd())
+        except ValueError as e:
+            print(f"seed: error: {e}")
+            return 1
+        if default_spec is None:
+            print("seed: error: no command provided\n")
+            print("Available commands:")
+            subparsers = parser._subparsers._group_actions[0]
+            for name, subparser in sorted(subparsers.choices.items()):
+                help_text = getattr(subparser, 'help', '') or getattr(subparser, 'description', '')
+                if help_text:
+                    print(f"  {name:12} {help_text}")
+                else:
+                    print(f"  {name}")
+            print("\nUse 'seed <command> -h' for help on a specific command.")
+            return 1
+        _configure_default_apply(args, default_spec)
+        print(f"Auto-applying spec: {default_spec.name}")
     
     setup_logging(args.verbose, args.debug)
 

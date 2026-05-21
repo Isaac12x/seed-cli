@@ -87,6 +87,32 @@ def _touch(path: Path) -> None:
     path.touch(exist_ok=True)
 
 
+def _move_existing_root_file_for_create(target: Path, base: Path, rel_path: str) -> bool:
+    """Move an existing top-level file into a newly-created nested location.
+
+    A common quick-start workflow is to drop files in the current directory,
+    write a ``*.tree``/``*.seed`` spec that places those filenames under their
+    intended directories, then run ``seed``.  For a create step like
+    ``src/app.py``, if ``./app.py`` already exists and ``./src/app.py`` does not,
+    move the existing file instead of creating an empty placeholder.
+
+    Only direct children of ``base`` are considered so seed does not rummage
+    through unrelated subdirectories or accidentally move a file that is already
+    in the right place.
+    """
+    rel = Path(rel_path)
+    if len(rel.parts) <= 1 or target.exists():
+        return False
+
+    source = base / rel.name
+    if source == target or not source.is_file():
+        return False
+
+    _ensure_parent(target)
+    shutil.move(str(source), str(target))
+    return True
+
+
 def _prompt_optional(step: PlanStep) -> bool:
     """Prompt user whether to create an optional item.
 
@@ -255,7 +281,8 @@ def execute_plan(
                     _backup_file_if_has_content(target, base, backup_dir)
                     counters["backed_up"] += 1
                 if step.op == "create":
-                    _touch(target)
+                    if not _move_existing_root_file_for_create(target, base, step.path):
+                        _touch(target)
                 else:
                     if force or target.exists():
                         _touch(target)
