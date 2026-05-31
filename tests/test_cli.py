@@ -105,12 +105,43 @@ def test_cli_no_command(tmp_path):
     assert code == 1
     assert "no command provided" in out
     assert "Available commands" in out
+    assert "Plan & Apply:" in out
 
 
 def test_cli_version(tmp_path):
     code, out, err = run(["--version"], tmp_path)
     assert code == 0
     assert out.strip() == f"seed {project_version()}"
+
+
+def test_cli_help_groups_top_level_commands(tmp_path):
+    code, out, err = run(["--help"], tmp_path)
+
+    assert code == 0
+    for heading in [
+        "Plan & Apply:",
+        "Templates:",
+        "State & History:",
+        "Maintenance:",
+        "Export & Utilities:",
+    ]:
+        assert heading in out
+
+    assert "templates  Manage reusable templates. (alias: template)" in out
+    assert "template   Manage reusable templates." not in out
+    assert out.index("Plan & Apply:") < out.index("Templates:")
+    assert out.index("Templates:") < out.index("State & History:")
+
+
+def test_cli_template_help_groups_subcommands(tmp_path):
+    code, out, err = run(["templates", "--help"], tmp_path)
+
+    assert code == 0
+    assert "Browse:" in out
+    assert "Apply:" in out
+    assert "Manage:" in out
+    assert out.index("Browse:") < out.index("Apply:")
+    assert out.index("Apply:") < out.index("Manage:")
 
 
 def test_cli_capture(tmp_path):

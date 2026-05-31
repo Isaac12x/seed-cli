@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import sys
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -1907,6 +1908,138 @@ def _run(args) -> int:
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 
 
+@dataclass(frozen=True)
+class CommandSection:
+    title: str
+    commands: tuple[str, ...]
+
+
+ROOT_COMMAND_SECTIONS = (
+    CommandSection("Plan & Apply", ("plan", "diff", "apply", "sync", "match")),
+    CommandSection("Templates", ("register", "create", "templates")),
+    CommandSection("State & History", ("capture", "revert", "specs", "lock")),
+    CommandSection("Maintenance", ("doctor", "maintain", "hooks")),
+    CommandSection("Export & Utilities", ("export", "utils")),
+)
+
+LOCK_COMMAND_SECTIONS = (
+    CommandSection("Inspect", ("status", "list")),
+    CommandSection("Version Changes", ("set", "upgrade", "downgrade")),
+    CommandSection("Enforce", ("watch",)),
+)
+
+SPECS_COMMAND_SECTIONS = (
+    CommandSection("Browse", ("list", "show", "diff")),
+    CommandSection("Automate", ("watch",)),
+)
+
+TEMPLATE_COMMAND_SECTIONS = (
+    CommandSection("Browse", ("list", "show")),
+    CommandSection("Apply", ("use",)),
+    CommandSection("Manage", ("add", "update", "versions", "lock", "remove")),
+)
+
+UTILS_COMMAND_SECTIONS = (
+    CommandSection("Images", ("extract-tree",)),
+    CommandSection("State", ("state-lock",)),
+)
+
+
+class GroupedHelpGroup(click.Group):
+    """Click group that renders command help in curated sections."""
+
+    def __init__(
+        self,
+        *args,
+        command_sections: tuple[CommandSection, ...] = (),
+        command_aliases: dict[str, tuple[str, ...]] | None = None,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        self.command_sections = tuple(command_sections)
+        self.command_aliases = command_aliases or {}
+
+    def _command_rows(
+        self,
+        ctx: click.Context,
+        names: tuple[str, ...],
+        formatter: click.HelpFormatter,
+        seen_command_ids: set[int],
+    ) -> list[tuple[str, str]]:
+        rows = []
+        commands = [(name, self.get_command(ctx, name)) for name in names]
+        commands = [
+            (name, command)
+            for name, command in commands
+            if command is not None and not command.hidden
+        ]
+        if not commands:
+            return rows
+
+        max_len = max(len(name) for name, _ in commands)
+        limit = formatter.width - 6 - max_len
+
+        for name, command in commands:
+            command_id = id(command)
+            if command_id in seen_command_ids:
+                continue
+
+            seen_command_ids.add(command_id)
+            help_text = command.get_short_help_str(limit)
+            aliases = self.command_aliases.get(name)
+            if aliases:
+                help_text = f"{help_text} (alias: {', '.join(aliases)})"
+            rows.append((name, help_text))
+
+        return rows
+
+    def format_commands(
+        self,
+        ctx: click.Context,
+        formatter: click.HelpFormatter,
+    ) -> None:
+        seen_command_ids: set[int] = set()
+
+        with formatter.section("Commands"):
+            wrote_any = False
+            for section in self.command_sections:
+                rows = self._command_rows(
+                    ctx,
+                    section.commands,
+                    formatter,
+                    seen_command_ids,
+                )
+                if not rows:
+                    continue
+
+                with formatter.section(section.title):
+                    formatter.write_dl(rows)
+                wrote_any = True
+
+            remaining_names = []
+            for name in self.list_commands(ctx):
+                command = self.get_command(ctx, name)
+                if command is None or command.hidden:
+                    continue
+                if id(command) in seen_command_ids:
+                    continue
+                remaining_names.append(name)
+
+            if remaining_names:
+                title = "Other" if wrote_any else None
+                rows = self._command_rows(
+                    ctx,
+                    tuple(remaining_names),
+                    formatter,
+                    seen_command_ids,
+                )
+                if title:
+                    with formatter.section(title):
+                        formatter.write_dl(rows)
+                else:
+                    formatter.write_dl(rows)
+
+
 def _version_callback(ctx: click.Context, param: click.Option, value: bool) -> None:
     if not value or ctx.resilient_parsing:
         return
@@ -1951,6 +2084,9 @@ def _complete_project_template_names_click(
 
 
 @click.group(
+    cls=GroupedHelpGroup,
+    command_sections=ROOT_COMMAND_SECTIONS,
+    command_aliases={"templates": ("template",)},
     context_settings=CONTEXT_SETTINGS,
     invoke_without_command=True,
     help="Terraform-inspired filesystem orchestration tool.",
@@ -2135,7 +2271,14 @@ def export_command(ctx, kind, input_, out, base):
     return _dispatch(ctx, "export", kind=kind, input=input_, out=out, base=base)
 
 
-@click_cli.group("lock", context_settings=CONTEXT_SETTINGS, invoke_without_command=True, help="Manage structure locks.")
+@click_cli.group(
+    "lock",
+    cls=GroupedHelpGroup,
+    command_sections=LOCK_COMMAND_SECTIONS,
+    context_settings=CONTEXT_SETTINGS,
+    invoke_without_command=True,
+    help="Manage structure locks.",
+)
 @click.pass_context
 def lock_group(ctx):
     if ctx.invoked_subcommand is None:
@@ -2208,7 +2351,14 @@ def hooks_install_command(ctx, hook):
     return _dispatch(ctx, "hooks", action="install", hook=list(hook) or None, base=".")
 
 
-@click_cli.group("specs", context_settings=CONTEXT_SETTINGS, invoke_without_command=True, help="View captured spec history.")
+@click_cli.group(
+    "specs",
+    cls=GroupedHelpGroup,
+    command_sections=SPECS_COMMAND_SECTIONS,
+    context_settings=CONTEXT_SETTINGS,
+    invoke_without_command=True,
+    help="View captured spec history.",
+)
 @click.pass_context
 def specs_group(ctx):
     if ctx.invoked_subcommand is None:
@@ -2247,7 +2397,14 @@ def specs_watch_command(ctx, base, interval):
     return _dispatch(ctx, "specs", specs_action="watch", base=base, interval=interval)
 
 
-@click_cli.group("templates", context_settings=CONTEXT_SETTINGS, invoke_without_command=True, help="Manage reusable templates.")
+@click_cli.group(
+    "templates",
+    cls=GroupedHelpGroup,
+    command_sections=TEMPLATE_COMMAND_SECTIONS,
+    context_settings=CONTEXT_SETTINGS,
+    invoke_without_command=True,
+    help="Manage reusable templates.",
+)
 @click.pass_context
 def templates_group(ctx):
     if ctx.invoked_subcommand is None:
@@ -2365,7 +2522,14 @@ def templates_versions_command(ctx, name, add_, version_name, set_current):
     return _dispatch(ctx, "templates", templates_action="versions", name=name, add=add_, version_name=version_name, set_current=set_current, base=".")
 
 
-@click_cli.group("utils", context_settings=CONTEXT_SETTINGS, invoke_without_command=True, help="Utility commands.")
+@click_cli.group(
+    "utils",
+    cls=GroupedHelpGroup,
+    command_sections=UTILS_COMMAND_SECTIONS,
+    context_settings=CONTEXT_SETTINGS,
+    invoke_without_command=True,
+    help="Utility commands.",
+)
 @click.pass_context
 def utils_group(ctx):
     if ctx.invoked_subcommand is None:

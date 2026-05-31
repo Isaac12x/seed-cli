@@ -9,6 +9,7 @@ All notable changes to this project are documented in this file.
 - Added `seed templates use <name> <folder>` positional folder support for single-placeholder templates.
 
 ### Changed
+- Grouped Click command help into workflow-oriented sections for top-level, template, specs, lock, and utility commands, with `seed template` shown as a `seed templates` alias instead of a duplicate row.
 - Made `seed templates list` discover visible project-local templates from `.seed/templates/project/` and show them before global registry templates.
 - Made `seed templates use` resolve visible project-local templates before falling back to the global template registry.
 

@@ -61,25 +61,15 @@ seed maintain maintenance.yml --execute
 
 ## Commands
 
-| Command | Description |
-| --- | --- |
-| `plan` | Parse a spec and generate an execution plan |
-| `apply` | Apply a spec or a saved plan |
-| `register` | Register `.tree` or `.seed` specs into project `.seed/` files |
-| `sync` | Apply a spec and delete extras |
-| `diff` | Compare a spec with the filesystem |
-| `match` | Modify the filesystem to match a spec, respecting `...` |
-| `maintain` | Build or execute repository/service/system maintenance plans |
-| `create` | Instantiate template directory structures |
-| `revert` | Revert to a previous snapshot |
-| `doctor` | Lint a spec and optionally auto-fix issues |
-| `capture` | Capture filesystem state as a spec |
-| `export` | Export a tree, JSON spec, plan, or DOT graph |
-| `lock` | Manage structure locks, versions, and watch mode |
-| `hooks` | Install git hooks |
-| `specs` | View captured spec history and watch for changes |
-| `templates` | Manage reusable templates |
-| `utils` | `extract-tree` and `state-lock` helpers |
+`seed --help` groups commands by workflow so related tasks are easier to scan.
+
+| Group | Commands | Description |
+| --- | --- | --- |
+| Plan & Apply | `plan`, `diff`, `apply`, `sync`, `match` | Preview, compare, and apply filesystem changes |
+| Templates | `register`, `create`, `templates` (`template`) | Register, instantiate, and manage reusable specs |
+| State & History | `capture`, `revert`, `specs`, `lock` | Capture state, recover snapshots, inspect history, and enforce structure versions |
+| Maintenance | `doctor`, `maintain`, `hooks` | Lint specs, run repository/service maintenance, and install hooks |
+| Export & Utilities | `export`, `utils` | Export trees/plans/DOT output and run helper tools |
 
 ## Core Workflow
 
