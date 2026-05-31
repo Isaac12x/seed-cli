@@ -237,12 +237,18 @@ seed templates list
 seed templates add ./template.tree --name my-template
 seed templates add ./template.seed --name service-template
 seed templates show my-template
-seed templates use my-template
+seed templates use my-template target-folder
 seed templates versions my-template --add ./updated.tree --name v2
 seed templates lock my-template
 seed templates update my-template
 seed templates remove my-template
 ```
+
+`seed templates list` also shows project-local templates discovered from
+`.seed/templates/project/`, before global registry templates. `seed templates
+use <name> <folder>` resolves a visible project template first, then falls back
+to the global registry. The singular alias `seed template use ...` is also
+accepted.
 
 Built-in templates include `fastapi`, `python-package`, and `node-typescript`.
 
@@ -456,14 +462,18 @@ seed utils state-lock --force-unlock
 
 ## Shell Autocomplete
 
-Enable completion with `argcomplete`:
+Click provides shell completion for Bash, Zsh, and Fish. Generate the completion
+script from the installed `seed` entry point:
 
 ```bash
-# zsh / bash
-eval "$(register-python-argcomplete seed)"
+# zsh
+eval "$(_SEED_COMPLETE=zsh_source seed)"
+
+# bash
+eval "$(_SEED_COMPLETE=bash_source seed)"
 
 # fish
-register-python-argcomplete --shell fish seed | source
+_SEED_COMPLETE=fish_source seed | source
 ```
 
 Then reload your shell and use tab completion:

@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import sys
@@ -38,6 +39,24 @@ def run(cmd, cwd):
     # Combine stdout and stderr for easier checking
     output = p.stdout + p.stderr
     return p.returncode, output, p.stderr
+
+
+def write_template_registry(seed_home: Path, names: list[str]) -> None:
+    templates_dir = seed_home / "templates"
+    templates_dir.mkdir(parents=True, exist_ok=True)
+    registry = {
+        name: {
+            "name": name,
+            "source": "test",
+            "current_version": "v1",
+            "locked": False,
+            "created_at": 0,
+            "versions": ["v1"],
+            "content_url": None,
+        }
+        for name in names
+    }
+    (templates_dir / "registry.json").write_text(json.dumps(registry), encoding="utf-8")
 
 
 def test_cli_plan(tmp_path):
@@ -410,3 +429,66 @@ def test_cli_create_finds_project_template_without_flag(tmp_path):
     assert code == 0
     assert (tmp_path / "test" / "api").is_dir()
     assert (tmp_path / "test" / "api" / "route.ts").exists()
+
+
+def test_cli_templates_list_shows_project_templates_first(tmp_path, monkeypatch):
+    monkeypatch.setenv("SEED_HOME", str(tmp_path / "seed-home"))
+    write_template_registry(
+        tmp_path / "seed-home",
+        ["fastapi", "python-package", "node-typescript", "ralph", "stored"],
+    )
+
+    project_root = tmp_path / "repo"
+    project_root.mkdir()
+    (project_root / ".git").mkdir()
+    template_dir = project_root / ".seed" / "templates" / "project"
+    template_dir.mkdir(parents=True)
+    (template_dir / "component.tree").write_text("<name>/\n└── route.ts\n")
+
+    code, out, err = run(["templates", "list"], project_root)
+
+    assert code == 0
+    assert "Project templates:" in out
+    assert "  component" in out
+    assert out.index("Project templates:") < out.index("Stored templates:")
+
+
+def test_cli_templates_use_discovers_project_template_and_uses_folder(tmp_path):
+    project_root = tmp_path / "repo"
+    project_root.mkdir()
+    (project_root / ".git").mkdir()
+    template_dir = project_root / ".seed" / "templates" / "project"
+    template_dir.mkdir(parents=True)
+    (template_dir / "component.tree").write_text(
+        ".\n"
+        "└── <name>/\n"
+        "    └── api/\n"
+        "        └── route.ts\n"
+    )
+
+    code, out, err = run(["templates", "use", "component", "users"], project_root)
+
+    assert code == 0
+    assert (project_root / "users" / "api" / "route.ts").exists()
+
+
+def test_cli_template_use_registry_template_uses_folder_argument(tmp_path, monkeypatch):
+    seed_home = tmp_path / "seed-home"
+    monkeypatch.setenv("SEED_HOME", str(seed_home))
+    write_template_registry(
+        seed_home,
+        ["fastapi", "python-package", "node-typescript", "ralph", "component"],
+    )
+    template_dir = seed_home / "templates" / "component"
+    template_dir.mkdir(parents=True)
+    (template_dir / "v1.tree").write_text(
+        ".\n"
+        "└── <name>/\n"
+        "    └── api/\n"
+        "        └── route.ts\n"
+    )
+
+    code, out, err = run(["template", "use", "component", "users", "--yes"], tmp_path)
+
+    assert code == 0
+    assert (tmp_path / "users" / "api" / "route.ts").exists()

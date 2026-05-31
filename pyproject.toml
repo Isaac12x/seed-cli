@@ -30,7 +30,7 @@ classifiers = [
 ]
 dependencies = [
   "pyyaml",
-  "argcomplete",
+  "click",
   "requests",
 ]
 

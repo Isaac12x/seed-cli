@@ -4,10 +4,22 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Added a Click-based CLI command tree with `-h/--help`, built-in shell completion support, and a singular `seed template ...` alias for `seed templates ...`.
+- Added `seed templates use <name> <folder>` positional folder support for single-placeholder templates.
+
+### Changed
+- Made `seed templates list` discover visible project-local templates from `.seed/templates/project/` and show them before global registry templates.
+- Made `seed templates use` resolve visible project-local templates before falling back to the global template registry.
+
 ### Fixed
 - Captured all project-template subtrees from `FILESTRUCTURE.seed`-style specs into the project `.seed/templates/project/` scope, including duplicate `RUN_ID` subtemplates disambiguated as names such as `project_run.seed` and `agent_run.seed`.
 - Made project-template registration infer placeholder templates from any `<var>` in spec paths, including path-line specs, placeholder filenames, and templates with multiple placeholders.
 - Made `seed create` substitute all placeholder values in selected templates so nested placeholders such as `<name>` are not left in created paths.
+- Made `seed templates use` render `<var>` paths from template variables before applying, so the target folder is created instead of a literal placeholder path.
+
+### Tests
+- Added CLI regression coverage for project-template listing order, project-template discovery from `templates use`, and positional folder use with registry templates.
 
 ## [1.0.9] - 2026-05-14
 
