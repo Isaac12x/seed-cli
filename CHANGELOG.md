@@ -9,12 +9,14 @@ All notable changes to this project are documented in this file.
 - Added `seed templates use <name> <folder>` positional folder support for single-placeholder templates.
 
 ### Changed
+- Consolidated release automation so `v*` tag pushes build once, create or update the GitHub release with distributions, and publish the same artifacts to PyPI.
 - Grouped Click command help into workflow-oriented sections for top-level, template, specs, lock, and utility commands, with `seed template` shown as a `seed templates` alias instead of a duplicate row.
 - Made `seed templates list` discover visible project-local templates from `.seed/templates/project/` and show them before global registry templates.
 - Made `seed templates use` resolve visible project-local templates before falling back to the global template registry.
 - Added colorized terminal output for plans, maintenance actions, summaries, and list-style reports when color is supported or forced.
 
 ### Fixed
+- Restored bare `seed` auto-apply behavior in the Click CLI when exactly one `.seed` or `.tree` spec is present.
 - Captured all project-template subtrees from `FILESTRUCTURE.seed`-style specs into the project `.seed/templates/project/` scope, including duplicate `RUN_ID` subtemplates disambiguated as names such as `project_run.seed` and `agent_run.seed`.
 - Made project-template registration infer placeholder templates from any `<var>` in spec paths, including path-line specs, placeholder filenames, and templates with multiple placeholders.
 - Made `seed create` substitute all placeholder values in selected templates so nested placeholders such as `<name>` are not left in created paths.
