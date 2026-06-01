@@ -2157,6 +2157,26 @@ def click_cli(
         "target_mode": target_mode,
     }
     if ctx.invoked_subcommand is None:
+        try:
+            default_spec = _discover_default_spec(Path.cwd())
+        except ValueError as e:
+            click.echo(f"seed: error: {e}")
+            ctx.exit(1)
+
+        if default_spec is not None:
+            click.echo(f"Auto-applying spec: {default_spec.name}")
+            code = _dispatch(
+                ctx,
+                "apply",
+                spec=str(default_spec),
+                base=".",
+                dangerous=False,
+                dry_run=False,
+                yes=False,
+                skip_optional=False,
+            )
+            ctx.exit(code)
+
         click.echo("seed: error: no command provided\n")
         click.echo("Available commands:\n")
         click.echo(ctx.get_help())
