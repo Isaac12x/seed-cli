@@ -7,6 +7,7 @@ All notable changes to this project are documented in this file.
 ### Added
 - Added a Click-based CLI command tree with `-h/--help`, built-in shell completion support, and a singular `seed template ...` alias for `seed templates ...`.
 - Added `seed templates use <name> <folder>` positional folder support for single-placeholder templates.
+- Added `seed utils fix-tree` to add missing file-tree connectors to pasted stdin, `.tree`, `.seed`, and Markdown file-tree blocks.
 
 ### Changed
 - Grouped Click command help into workflow-oriented sections for top-level, template, specs, lock, and utility commands, with `seed template` shown as a `seed templates` alias instead of a duplicate row.
@@ -22,6 +23,7 @@ All notable changes to this project are documented in this file.
 
 ### Tests
 - Added CLI regression coverage for project-template listing order, project-template discovery from `templates use`, and positional folder use with registry templates.
+- Added utility and CLI coverage for fixing loose file-tree text from stdin and Markdown files.
 
 ## [1.0.9] - 2026-05-14
 

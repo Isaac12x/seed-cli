@@ -1115,6 +1115,27 @@ seed utils extract-tree screenshot.png --raw</code></pre>
             </div>
 
             <div class="command-card">
+                <h4>seed utils fix-tree [input]</h4>
+                <p>Add missing tree connectors to pasted stdin, .tree, .seed, or Markdown file-tree blocks.</p>
+                <div class="options">
+                    <code>--out OUT</code> Output file path (default: stdout)<br>
+                    <code>--in-place</code> Rewrite the input file<br>
+                    <code>--markdown</code> Treat stdin or non-.md input as Markdown
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash"># Fix pasted text from stdin
+cat pasted-tree.txt | seed utils fix-tree
+
+# Write a fixed spec
+seed utils fix-tree messy.seed --out fixed.seed
+
+# Rewrite a Markdown file-tree block
+seed utils fix-tree README.md --in-place</code></pre>
+            </div>
+
+            <div class="command-card">
                 <h4>seed utils state-lock</h4>
                 <p>Manage execution state locks for concurrent access control. Use if a process crashed and left a stale lock.</p>
                 <div class="options">

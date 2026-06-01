@@ -23,7 +23,7 @@ def project_version() -> str:
     raise AssertionError("Could not find [project].version in pyproject.toml")
 
 
-def run(cmd, cwd):
+def run(cmd, cwd, input_text=None):
     env = dict(os.environ)
     repo_root = Path(__file__).resolve().parents[1]
     src_path = str(repo_root / "src")
@@ -34,6 +34,7 @@ def run(cmd, cwd):
         cwd=cwd,
         capture_output=True,
         text=True,
+        input=input_text,
         env=env,
     )
     # Combine stdout and stderr for easier checking
@@ -209,6 +210,34 @@ def test_cli_state_lock_renew_no_lock(tmp_path):
     code, out, err = run(["utils", "state-lock", "--renew"], tmp_path)
     # Should handle gracefully or show error
     assert code in (0, 1)
+
+
+def test_cli_utils_fix_tree_from_stdin(tmp_path):
+    code, out, err = run(
+        ["utils", "fix-tree"],
+        tmp_path,
+        input_text="project/\n  src/\n    main.py\n",
+    )
+
+    assert code == 0
+    assert out == "project/\n└── src/\n    └── main.py\n"
+
+
+def test_cli_utils_fix_tree_in_place_markdown(tmp_path):
+    doc = tmp_path / "layout.md"
+    doc.write_text("```tree\napp/\n  routes/\n    index.ts\n```\n", encoding="utf-8")
+
+    code, out, err = run(["utils", "fix-tree", "layout.md", "--in-place"], tmp_path)
+
+    assert code == 0
+    assert "Fixed tree written to" in out
+    assert doc.read_text(encoding="utf-8") == (
+        "```tree\n"
+        "app/\n"
+        "└── routes/\n"
+        "    └── index.ts\n"
+        "```\n"
+    )
 
 
 def test_cli_hooks_install(tmp_path):

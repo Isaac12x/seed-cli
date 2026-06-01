@@ -446,6 +446,8 @@ Utilities:
 
 ```bash
 seed utils extract-tree screenshot.png --out spec.tree
+seed utils fix-tree messy.seed --out fixed.seed
+cat pasted-tree.txt | seed utils fix-tree
 seed utils state-lock
 seed utils state-lock --force-unlock
 ```

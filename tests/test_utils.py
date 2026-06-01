@@ -14,12 +14,74 @@ from seed_cli.utils.dir import (
     _strip_prefix_index,
     _strip_prefix_checks,
 )
+from seed_cli.tree_fixer import fix_tree_text
 
 
 # Mock Node class for testing
 class MockNode:
     def __init__(self, is_dir=False):
         self.is_dir = is_dir
+
+
+# -----------------------------------------------------------------------------
+# Tests for tree text fixer
+# -----------------------------------------------------------------------------
+
+
+def test_fix_tree_text_adds_connectors_to_indented_tree():
+    text = "project/\n  src/\n    main.py\n  README.md\n"
+
+    assert fix_tree_text(text) == (
+        "project/\n"
+        "├── src/\n"
+        "│   └── main.py\n"
+        "└── README.md\n"
+    )
+
+
+def test_fix_tree_text_adds_connectors_to_path_list():
+    text = "src/main.py\nsrc/utils/io.py\nREADME.md\n"
+
+    assert fix_tree_text(text) == (
+        "./\n"
+        "├── src/\n"
+        "│   ├── main.py\n"
+        "│   └── utils/\n"
+        "│       └── io.py\n"
+        "└── README.md\n"
+    )
+
+
+def test_fix_tree_text_updates_markdown_fenced_filetree():
+    text = (
+        "# Layout\n\n"
+        "```tree\n"
+        "app/\n"
+        "  routes/\n"
+        "    index.ts\n"
+        "```\n"
+    )
+
+    assert fix_tree_text(text, markdown=True) == (
+        "# Layout\n\n"
+        "```tree\n"
+        "app/\n"
+        "└── routes/\n"
+        "    └── index.ts\n"
+        "```\n"
+    )
+
+
+def test_fix_tree_text_leaves_markdown_prose_without_tree_fence_unchanged():
+    text = "# Notes\n\nA regular paragraph.\n\n    indented code\n"
+
+    assert fix_tree_text(text, markdown=True) == text
+
+
+def test_fix_tree_text_leaves_unlabeled_code_fence_unchanged():
+    text = "```\ndef build():\n    return 1\n```\n"
+
+    assert fix_tree_text(text, markdown=True) == text
 
 
 # -----------------------------------------------------------------------------

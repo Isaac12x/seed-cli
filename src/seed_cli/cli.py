@@ -662,6 +662,26 @@ def build_parser() -> argparse.ArgumentParser:
     extract_tree.add_argument("--vars", action="append", help="Template variables (key=value)")
     extract_tree.add_argument("--raw", action="store_true", help="Output raw OCR text without cleaning (for debugging)")
 
+    # fix-tree subcommand
+    fix_tree = utils_sub.add_parser(
+        "fix-tree",
+        description="Add missing tree connectors to .tree, .seed, Markdown, or stdin input",
+        help="Fix loose file-tree text",
+    )
+    fix_tree.add_argument(
+        "input",
+        nargs="?",
+        default="-",
+        help="Input file, or '-' for stdin (default: stdin)",
+    )
+    fix_tree.add_argument("--out", help="Output file path. Defaults to stdout.")
+    fix_tree.add_argument("--in-place", action="store_true", help="Rewrite the input file")
+    fix_tree.add_argument(
+        "--markdown",
+        action="store_true",
+        help="Treat input as Markdown and fix file-tree code blocks",
+    )
+
     # state-lock subcommand (moved from top-level lock)
     state_lock = utils_sub.add_parser(
         "state-lock",
@@ -1816,6 +1836,55 @@ def _run(args) -> int:
     if args.cmd == "utils":
         from seed_cli.utils import extract_tree_from_image, has_image_support
 
+        if args.util_action == "fix-tree":
+            from seed_cli.tree_fixer import fix_tree_text
+
+            source = getattr(args, "input", "-") or "-"
+            output = getattr(args, "out", None)
+            in_place = getattr(args, "in_place", False)
+
+            if in_place and source == "-":
+                print("Error: --in-place requires an input file")
+                return 1
+            if in_place and output:
+                print("Error: use either --in-place or --out, not both")
+                return 1
+
+            try:
+                if source == "-":
+                    text = sys.stdin.read()
+                    markdown = getattr(args, "markdown", False)
+                    destination = None
+                else:
+                    input_path = Path(source)
+                    text = input_path.read_text(encoding="utf-8")
+                    markdown = (
+                        getattr(args, "markdown", False)
+                        or input_path.suffix.lower() == ".md"
+                    )
+                    destination = (
+                        input_path if in_place else (Path(output) if output else None)
+                    )
+
+                fixed = fix_tree_text(text, markdown=markdown)
+
+                if destination is None:
+                    sys.stdout.write(fixed)
+                    return 0
+
+                destination.write_text(fixed, encoding="utf-8")
+                print(f"Fixed tree written to: {destination}")
+                return 0
+            except FileNotFoundError as e:
+                print(f"Error: {e}")
+                return 1
+            except Exception as e:
+                log.error(f"Error fixing tree text: {e}")
+                if args.debug:
+                    import traceback
+                    traceback.print_exc()
+                return 1
+
         if args.util_action == "extract-tree":
             # Check if image support is available
             if not has_image_support():
@@ -1942,6 +2011,7 @@ TEMPLATE_COMMAND_SECTIONS = (
 
 UTILS_COMMAND_SECTIONS = (
     CommandSection("Images", ("extract-tree",)),
+    CommandSection("Trees", ("fix-tree",)),
     CommandSection("State", ("state-lock",)),
 )
 
@@ -2546,6 +2616,25 @@ def utils_group(ctx):
 @click.pass_context
 def utils_extract_tree_command(ctx, image, out, vars_, raw):
     return _dispatch(ctx, "utils", util_action="extract-tree", image=image, out=out, vars=list(vars_), raw=raw, base=".")
+
+
+@utils_group.command("fix-tree", help="Fix loose file-tree text.")
+@click.argument("input", required=False, default="-")
+@click.option("--out", help="Output file path.")
+@click.option("--in-place", is_flag=True, help="Rewrite the input file.")
+@click.option("--markdown", is_flag=True, help="Treat input as Markdown.")
+@click.pass_context
+def utils_fix_tree_command(ctx, input, out, in_place, markdown):
+    return _dispatch(
+        ctx,
+        "utils",
+        util_action="fix-tree",
+        input=input,
+        out=out,
+        in_place=in_place,
+        markdown=markdown,
+        base=".",
+    )
 
 
 @utils_group.command("state-lock", help="Manage execution state locks.")
