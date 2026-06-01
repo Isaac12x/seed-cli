@@ -9,7 +9,7 @@ All notable changes to this project are documented in this file.
 - Added `seed templates use <name> <folder>` positional folder support for single-placeholder templates.
 
 ### Changed
-- Consolidated release automation so `v*` tag pushes build once, create or update the GitHub release with distributions, and publish the same artifacts to PyPI.
+- Consolidated release automation so `v*` tag pushes build and create or update the GitHub release with distributions, while the PyPI release workflow can publish from release events or manual dispatch.
 - Grouped Click command help into workflow-oriented sections for top-level, template, specs, lock, and utility commands, with `seed template` shown as a `seed templates` alias instead of a duplicate row.
 - Made `seed templates list` discover visible project-local templates from `.seed/templates/project/` and show them before global registry templates.
 - Made `seed templates use` resolve visible project-local templates before falling back to the global template registry.
