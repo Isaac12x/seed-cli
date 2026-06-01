@@ -39,7 +39,7 @@ COMMON_EXTENSIONS = {
     ".zip", ".tar", ".gz", ".rar", ".7z",
     ".mp3", ".mp4", ".wav", ".avi", ".mov", ".mkv",
     ".woff", ".woff2", ".ttf", ".otf", ".eot",
-    ".lock", ".log", ".tree", ".dot",
+    ".lock", ".log", ".tree", ".seed", ".dot",
 }
 
 
@@ -94,7 +94,7 @@ def doctor(nodes: List[Node], base: Path, fix: bool = False) -> List[str]:
             if n.annotation not in VALID_ANNOTATIONS:
                 issues.append(f"invalid annotation @{n.annotation} on {rel}")
                 if fix:
-                    n = Node(n.relpath, n.is_dir, n.comment, None)
+                    n = Node(n.relpath, n.is_dir, n.comment, None, n.optional, dict(n.metadata))
 
         # potential directory without trailing /
         if not n.is_dir and _looks_like_directory(Path(rel).name):
@@ -102,7 +102,14 @@ def doctor(nodes: List[Node], base: Path, fix: bool = False) -> List[str]:
             if rel in has_children:
                 issues.append(f"potential directory: {rel} (has children, should end with /)")
                 if fix:
-                    n = Node(n.relpath, is_dir=True, comment=n.comment, annotation=n.annotation)
+                    n = Node(
+                        n.relpath,
+                        is_dir=True,
+                        comment=n.comment,
+                        annotation=n.annotation,
+                        optional=n.optional,
+                        metadata=dict(n.metadata),
+                    )
             else:
                 # Just warn, don't auto-fix since we're not sure
                 issues.append(f"potential directory: {rel} (no extension, consider adding /)")

@@ -11,6 +11,7 @@ data/
 vscode-extension/
 
 .claude
+codedb.snapshot
 
 *.tree
 err-*.txt

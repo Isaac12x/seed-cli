@@ -19,7 +19,7 @@ from typing import List, Dict, Iterable, Optional
 import fnmatch
 import json
 
-from .parsers import Node
+from .parsers import Node, render_node_text
 
 DEFAULT_IGNORE = [
     ".git/**",
@@ -64,8 +64,7 @@ def to_tree_text(nodes: List[Node]) -> str:
     """Render nodes to simple tree-text format."""
     lines: List[str] = []
     for n in sorted(nodes, key=lambda n: n.relpath.as_posix()):
-        suffix = "/" if n.is_dir else ""
-        lines.append(f"{n.relpath.as_posix()}{suffix}")
+        lines.append(render_node_text(n))
     return "\n".join(lines)
 
 
@@ -77,6 +76,8 @@ def to_json(nodes: List[Node]) -> str:
             "path": n.relpath.as_posix() + ("/" if n.is_dir else ""),
             "type": "dir" if n.is_dir else "file",
         })
+        if n.metadata:
+            entries[-1]["metadata"] = n.metadata
     return json.dumps({"entries": entries}, indent=2)
 
 

@@ -6,6 +6,7 @@ import seed_cli.template_registry as template_registry
 from seed_cli.template_registry import (
     TEMPLATES_DIR_NAME,
     add_local_template,
+    fetch_content_to_dir,
     fetch_from_github,
     get_template_config_path,
     get_template_content_dir,
@@ -121,6 +122,46 @@ def test_fetch_from_github_wraps_git_errors(tmp_path, monkeypatch):
             "https://github.com/user/repo/blob/main/spec.tree",
             tmp_path,
         )
+
+
+def test_fetch_content_to_dir_uses_git_clone_for_repo_urls(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_clone(url, dest_dir):
+        calls.append((url, dest_dir))
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        (dest_dir / "README.md").write_text("repo", encoding="utf-8")
+        return dest_dir
+
+    monkeypatch.setattr(template_registry, "_clone_repo_to_dir", fake_clone)
+
+    dest = tmp_path / "dest"
+    fetch_content_to_dir("https://github.com/user/repo.git", dest)
+
+    assert calls == [("https://github.com/user/repo.git", dest)]
+    assert (dest / "README.md").read_text(encoding="utf-8") == "repo"
+
+
+def test_add_local_template_materializes_nested_directory_content_sources(tmp_path, monkeypatch):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    spec_dir = tmp_path / "template"
+    spec_dir.mkdir()
+    (spec_dir / "spec.tree").write_text("vendor/ (https://github.com/acme/repo.git)\n", encoding="utf-8")
+
+    def fake_materialize(nodes, dest_dir, *, strict=False):
+        vendor_dir = dest_dir / "vendor"
+        vendor_dir.mkdir(parents=True, exist_ok=True)
+        (vendor_dir / "README.md").write_text("nested", encoding="utf-8")
+        return [vendor_dir]
+
+    monkeypatch.setattr("seed_cli.content_sources.materialize_node_content_sources", fake_materialize)
+
+    add_local_template(str(spec_dir), "demo")
+
+    content_dir = get_template_content_dir("demo")
+    assert content_dir is not None
+    assert (content_dir / "vendor" / "README.md").read_text(encoding="utf-8") == "nested"
 
 
 def test_install_default_templates_returns_when_resource_lookup_fails(tmp_path, monkeypatch):

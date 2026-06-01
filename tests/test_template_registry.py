@@ -272,6 +272,34 @@ def test_add_local_template(tmp_path, monkeypatch):
     assert (template_dir / "v1.tree").exists()
 
 
+def test_add_local_template_preserves_seed_extension(tmp_path, monkeypatch):
+    """Should preserve .seed files when storing a template version."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    spec_file = tmp_path / "myspec.seed"
+    spec_file.write_text("vendor/ !service")
+
+    meta = add_local_template(str(spec_file), "mytemplate")
+
+    assert meta.current_version == "v1"
+    template_dir = tmp_path / ".seed" / TEMPLATES_DIR_NAME / "mytemplate"
+    assert (template_dir / "v1.seed").exists()
+
+
+def test_add_local_template_directory_accepts_spec_seed(tmp_path, monkeypatch):
+    """Should detect spec.seed inside a template directory."""
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    template_src = tmp_path / "template-src"
+    template_src.mkdir()
+    (template_src / "spec.seed").write_text("vendor/ !service")
+
+    meta = add_local_template(str(template_src), "mytemplate")
+
+    assert meta.current_version == "v1"
+    assert (tmp_path / ".seed" / TEMPLATES_DIR_NAME / "mytemplate" / "v1.seed").exists()
+
+
 def test_add_local_template_auto_version(tmp_path, monkeypatch):
     """Should auto-increment version."""
     monkeypatch.setattr(Path, "home", lambda: tmp_path)

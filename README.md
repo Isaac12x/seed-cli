@@ -15,8 +15,8 @@ Think **Terraform for directory trees**, plus **template scaffolding** and
 
 ## Highlights
 
-- Multiple spec inputs: `.tree`, YAML, JSON, DOT, image OCR, and stdin
-- Deterministic planning with exportable plans: `seed plan spec.tree --out plan.json`
+- Multiple spec inputs: `.tree`, `.seed`, YAML, JSON, DOT, image OCR, and stdin
+- Deterministic planning with exportable plans: `seed plan spec.seed --out plan.json`
 - Safe execution of immutable plans: `seed apply plan.json`
 - Drift workflows: `diff`, `sync`, `match`, snapshots, and spec history
 - Template variables in paths and content: `<varname>/` and `{{var}}`
@@ -63,25 +63,15 @@ seed maintain maintenance.yml --execute
 
 ## Commands
 
-| Command | Description |
-| --- | --- |
-| `plan` | Parse a spec and generate an execution plan |
-| `apply` | Apply a spec or a saved plan |
-| `register` | Register `.tree` specs into project `.seed/` files |
-| `sync` | Apply a spec and delete extras |
-| `diff` | Compare a spec with the filesystem |
-| `match` | Modify the filesystem to match a spec, respecting `...` |
-| `maintain` | Build or execute repository/service/system maintenance plans |
-| `create` | Instantiate template directory structures |
-| `revert` | Revert to a previous snapshot |
-| `doctor` | Lint a spec and optionally auto-fix issues |
-| `capture` | Capture filesystem state as a spec |
-| `export` | Export a tree, JSON spec, plan, or DOT graph |
-| `lock` | Manage structure locks, versions, and watch mode |
-| `hooks` | Install git hooks |
-| `specs` | View captured spec history |
-| `templates` | Manage reusable templates |
-| `utils` | `extract-tree` and `state-lock` helpers |
+`seed --help` groups commands by workflow so related tasks are easier to scan.
+
+| Group | Commands | Description |
+| --- | --- | --- |
+| Plan & Apply | `plan`, `diff`, `apply`, `sync`, `match` | Preview, compare, and apply filesystem changes |
+| Templates | `register`, `create`, `templates` (`template`) | Register, instantiate, and manage reusable specs |
+| State & History | `capture`, `revert`, `specs`, `lock` | Capture state, recover snapshots, inspect history, and enforce structure versions |
+| Maintenance | `doctor`, `maintain`, `hooks` | Lint specs, run repository/service maintenance, and install hooks |
+| Export & Utilities | `export`, `utils` | Export trees/plans/DOT output and run helper tools |
 
 ## Core Workflow
 
@@ -98,7 +88,8 @@ seed apply plan.json
 seed apply dir_structure.tree
 ```
 
-When you apply a spec with template placeholders such as `<name>/`, `seed apply`
+When you apply a spec with template placeholders such as `<name>/` or
+`features/<name>.ts`, `seed apply`
 first runs `seed register` semantics: it writes the supporting files under
 `.seed/templates/` and `.seed/templates/project/`, then removes any stale
 literal placeholder paths like `features/<name>/` left behind by older runs.
@@ -124,6 +115,8 @@ seed plan dir_structure.tree --target-mode exact
 
 ## Spec Syntax
 
+Use `.tree` for simple filesystem specs, or `.seed` when you want the same tree-shaped format plus richer inline metadata such as kinds, tags, and URLs.
+
 ### Basic Example
 
 ```text
@@ -143,8 +136,25 @@ scripts/
 - `@manual`: manually maintained file
 - `?`: optional file or directory
 - `...`: allow extras inside a directory
-- `<varname>/`: template directory placeholder
+- `<varname>`: template placeholder in a path segment or filename
 - `{{var}}`: variable interpolation in file contents
+
+`.seed` also supports inline metadata markers:
+
+- `!kind`: semantic kind marker such as `!service`, `!doc`, or `!template`
+- `+tag`: repeatable tags such as `+remote +shared`
+- `-> URL`: attach a metadata URL to a node; on directory nodes this can be
+  used as a template content source
+
+Example:
+
+```text
+vendor/
+└── api/ !service +remote -> https://github.com/acme/repo.git
+```
+
+Structured YAML and JSON specs can also carry metadata with either a
+`metadata` object or top-level `kind`, `tags`, and `url` fields.
 
 ### Variable Usage
 
@@ -168,19 +178,29 @@ files/
 └── ...
 ```
 
+Placeholders can also appear in path-per-line specs or filenames, and templates
+can include more than one placeholder:
+
+```text
+features/<domain>/<name>/route.ts
+features/<name>.ts
+```
+
 Create instances:
 
 ```bash
 seed create releases.tree version_id=v3
+seed create component.tree domain=billing name=invoices
 seed create releases.tree version_id=v3 --dry-run
 ```
 
 ### Project-Local Templates
 
-Use `seed register` to mirror any `.tree` spec into the project-level
-`.seed/templates/` directory. When the spec contains nested template subtrees,
-it also extracts them into `.seed/templates/project/`. `seed apply <spec>` runs
-the same registration step automatically before execution.
+Use `seed register` to mirror any `.tree` or `.seed` spec into the project-level
+`.seed/templates/` directory. When the spec contains placeholders anywhere in a
+path, it also extracts the outermost placeholder subtree into
+`.seed/templates/project/`. `seed apply <spec>` runs the same registration step
+automatically before execution.
 
 ```bash
 seed register releases.tree
@@ -207,24 +227,35 @@ under `$SEED_HOME/templates/` when `SEED_HOME` is set.
 ```bash
 seed templates list
 seed templates add ./template.tree --name my-template
+seed templates add ./template.seed --name service-template
 seed templates show my-template
-seed templates use my-template
+seed templates use my-template target-folder
 seed templates versions my-template --add ./updated.tree --name v2
 seed templates lock my-template
 seed templates update my-template
 seed templates remove my-template
 ```
 
+`seed templates list` also shows project-local templates discovered from
+`.seed/templates/project/`, before global registry templates. `seed templates
+use <name> <folder>` resolves a visible project template first, then falls back
+to the global registry. The singular alias `seed template use ...` is also
+accepted.
+
 Built-in templates include `fastapi`, `python-package`, and `node-typescript`.
 
 ### Template Content Sources
 
-Templates can point at a local directory or a GitHub tree URL so seed can fetch
-real file contents alongside the structure spec.
+Templates can point at a local directory, a GitHub tree URL, or a git
+repository URL so seed can fetch real file contents alongside the structure
+spec. Repository sources are cloned without their `.git` metadata.
 
 ```bash
 seed templates add ./fastapi --name fastapi \
   --content-url https://github.com/tiangolo/full-stack-fastapi-template/tree/master/backend/app
+
+seed templates add ./service.seed --name service \
+  --content-url https://github.com/acme/service-skeleton.git
 
 seed templates update fastapi
 seed templates update --all
@@ -232,7 +263,13 @@ seed templates update fastapi --content-url /path/to/local/files
 ```
 
 Templates that include a `source.json` file with `{"content_url": "..."}` are
-fetched automatically when installed.
+fetched automatically when installed. `.seed` directory nodes can also declare
+their own content sources inline:
+
+```text
+vendor/
+└── api/ !service +remote -> https://github.com/acme/api-client.git
+```
 
 ### Copier-Style Scaffolding
 
@@ -371,7 +408,12 @@ Applied structures are also captured as versioned specs:
 seed specs list
 seed specs show
 seed specs diff v1 v3
+seed specs watch
 ```
+
+`seed specs watch` polls the workspace and writes a new `.seed/specs/vN.tree`
+whenever the filesystem structure changes, so manual file creation after an
+initial `apply` advances the internal reference automatically.
 
 Lock a filesystem structure and watch it for drift:
 
@@ -412,14 +454,18 @@ seed utils state-lock --force-unlock
 
 ## Shell Autocomplete
 
-Enable completion with `argcomplete`:
+Click provides shell completion for Bash, Zsh, and Fish. Generate the completion
+script from the installed `seed` entry point:
 
 ```bash
-# zsh / bash
-eval "$(register-python-argcomplete seed)"
+# zsh
+eval "$(_SEED_COMPLETE=zsh_source seed)"
+
+# bash
+eval "$(_SEED_COMPLETE=bash_source seed)"
 
 # fish
-register-python-argcomplete --shell fish seed | source
+_SEED_COMPLETE=fish_source seed | source
 ```
 
 Then reload your shell and use tab completion:

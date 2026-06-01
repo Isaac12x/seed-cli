@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import sys
@@ -40,6 +41,24 @@ def run(cmd, cwd):
     return p.returncode, output, p.stderr
 
 
+def write_template_registry(seed_home: Path, names: list[str]) -> None:
+    templates_dir = seed_home / "templates"
+    templates_dir.mkdir(parents=True, exist_ok=True)
+    registry = {
+        name: {
+            "name": name,
+            "source": "test",
+            "current_version": "v1",
+            "locked": False,
+            "created_at": 0,
+            "versions": ["v1"],
+            "content_url": None,
+        }
+        for name in names
+    }
+    (templates_dir / "registry.json").write_text(json.dumps(registry), encoding="utf-8")
+
+
 def test_cli_plan(tmp_path):
     spec = tmp_path / "spec.tree"
     spec.write_text("a/file.txt")
@@ -64,18 +83,13 @@ def test_cli_apply(tmp_path):
     assert (tmp_path / "x.txt").exists()
 
 
-def test_cli_apply_moves_existing_root_file_to_nested_spec_path(tmp_path):
-    spec = tmp_path / "spec.tree"
-    spec.write_text("pkg/module.py\n", encoding="utf-8")
-    (tmp_path / "module.py").write_text("VALUE = 1\n", encoding="utf-8")
-
-    code, out, err = run(["apply", "spec.tree"], tmp_path)
-
+def test_cli_apply_seed_spec(tmp_path):
+    spec = tmp_path / "spec.seed"
+    spec.write_text("vendor/ !service\nvendor/README.md")
+    code, out, err = run(["apply", "spec.seed"], tmp_path)
     assert code == 0
-    assert not (tmp_path / "module.py").exists()
-    assert (
-        (tmp_path / "pkg" / "module.py").read_text(encoding="utf-8") == "VALUE = 1\n"
-    )
+    assert (tmp_path / "vendor").is_dir()
+    assert (tmp_path / "vendor" / "README.md").exists()
 
 
 def test_cli_doctor(tmp_path):
@@ -91,6 +105,7 @@ def test_cli_no_command(tmp_path):
     assert code == 1
     assert "no command provided" in out
     assert "Available commands" in out
+    assert "Plan & Apply:" in out
 
 
 def test_cli_no_command_applies_single_seed_spec_and_moves_files(tmp_path):
@@ -125,6 +140,36 @@ def test_cli_version(tmp_path):
     assert out.strip() == f"seed {project_version()}"
 
 
+def test_cli_help_groups_top_level_commands(tmp_path):
+    code, out, err = run(["--help"], tmp_path)
+
+    assert code == 0
+    for heading in [
+        "Plan & Apply:",
+        "Templates:",
+        "State & History:",
+        "Maintenance:",
+        "Export & Utilities:",
+    ]:
+        assert heading in out
+
+    assert "templates  Manage reusable templates. (alias: template)" in out
+    assert "template   Manage reusable templates." not in out
+    assert out.index("Plan & Apply:") < out.index("Templates:")
+    assert out.index("Templates:") < out.index("State & History:")
+
+
+def test_cli_template_help_groups_subcommands(tmp_path):
+    code, out, err = run(["templates", "--help"], tmp_path)
+
+    assert code == 0
+    assert "Browse:" in out
+    assert "Apply:" in out
+    assert "Manage:" in out
+    assert out.index("Browse:") < out.index("Apply:")
+    assert out.index("Apply:") < out.index("Manage:")
+
+
 def test_cli_capture(tmp_path):
     (tmp_path / "test.txt").write_text("content")
     code, out, err = run(["capture"], tmp_path)
@@ -146,6 +191,16 @@ def test_cli_capture_out(tmp_path):
     assert code == 0
     assert (tmp_path / "spec.tree").exists()
     assert "test.txt" in (tmp_path / "spec.tree").read_text()
+
+
+def test_cli_specs_watch_parser():
+    from seed_cli.cli import build_parser
+
+    args = build_parser().parse_args(["specs", "watch", "--interval", "0.25"])
+
+    assert args.cmd == "specs"
+    assert args.specs_action == "watch"
+    assert args.interval == 0.25
 
 
 def test_cli_export_tree(tmp_path):
@@ -381,6 +436,41 @@ def test_cli_create_with_registered_project_template(tmp_path):
     assert (features_dir / "users" / "api" / "route.ts").exists()
 
 
+def test_cli_create_with_registered_project_template_replaces_multiple_placeholders(tmp_path):
+    spec = tmp_path / "spec.tree"
+    spec.write_text(
+        ".\n"
+        "└── features/\n"
+        "    └── <domain>/\n"
+        "        └── <name>/\n"
+        "            └── route.ts\n"
+    )
+
+    code, out, err = run(["apply", "spec.tree"], tmp_path)
+    assert code == 0
+    assert (tmp_path / "features" / ".seed" / "templates" / "project" / "domain.tree").exists()
+
+    code, out, err = run(["create", "--project", "domain", "domain=billing", "name=invoices"], tmp_path / "features")
+
+    assert code == 0
+    assert (tmp_path / "features" / "billing" / "invoices" / "route.ts").exists()
+    assert not (tmp_path / "features" / "billing" / "<name>").exists()
+
+
+def test_cli_create_with_registered_placeholder_filename_template(tmp_path):
+    spec = tmp_path / "spec.tree"
+    spec.write_text("features/<name>.ts\n")
+
+    code, out, err = run(["apply", "spec.tree"], tmp_path)
+    assert code == 0
+    assert (tmp_path / "features" / ".seed" / "templates" / "project" / "name.tree").exists()
+
+    code, out, err = run(["create", "--project", "name", "name=users"], tmp_path / "features")
+
+    assert code == 0
+    assert (tmp_path / "features" / "users.ts").exists()
+
+
 def test_cli_create_finds_project_template_without_flag(tmp_path):
     template_dir = tmp_path / ".seed" / "templates" / "project"
     template_dir.mkdir(parents=True)
@@ -396,3 +486,66 @@ def test_cli_create_finds_project_template_without_flag(tmp_path):
     assert code == 0
     assert (tmp_path / "test" / "api").is_dir()
     assert (tmp_path / "test" / "api" / "route.ts").exists()
+
+
+def test_cli_templates_list_shows_project_templates_first(tmp_path, monkeypatch):
+    monkeypatch.setenv("SEED_HOME", str(tmp_path / "seed-home"))
+    write_template_registry(
+        tmp_path / "seed-home",
+        ["fastapi", "python-package", "node-typescript", "ralph", "stored"],
+    )
+
+    project_root = tmp_path / "repo"
+    project_root.mkdir()
+    (project_root / ".git").mkdir()
+    template_dir = project_root / ".seed" / "templates" / "project"
+    template_dir.mkdir(parents=True)
+    (template_dir / "component.tree").write_text("<name>/\n└── route.ts\n")
+
+    code, out, err = run(["templates", "list"], project_root)
+
+    assert code == 0
+    assert "Project templates:" in out
+    assert "  component" in out
+    assert out.index("Project templates:") < out.index("Stored templates:")
+
+
+def test_cli_templates_use_discovers_project_template_and_uses_folder(tmp_path):
+    project_root = tmp_path / "repo"
+    project_root.mkdir()
+    (project_root / ".git").mkdir()
+    template_dir = project_root / ".seed" / "templates" / "project"
+    template_dir.mkdir(parents=True)
+    (template_dir / "component.tree").write_text(
+        ".\n"
+        "└── <name>/\n"
+        "    └── api/\n"
+        "        └── route.ts\n"
+    )
+
+    code, out, err = run(["templates", "use", "component", "users"], project_root)
+
+    assert code == 0
+    assert (project_root / "users" / "api" / "route.ts").exists()
+
+
+def test_cli_template_use_registry_template_uses_folder_argument(tmp_path, monkeypatch):
+    seed_home = tmp_path / "seed-home"
+    monkeypatch.setenv("SEED_HOME", str(seed_home))
+    write_template_registry(
+        seed_home,
+        ["fastapi", "python-package", "node-typescript", "ralph", "component"],
+    )
+    template_dir = seed_home / "templates" / "component"
+    template_dir.mkdir(parents=True)
+    (template_dir / "v1.tree").write_text(
+        ".\n"
+        "└── <name>/\n"
+        "    └── api/\n"
+        "        └── route.ts\n"
+    )
+
+    code, out, err = run(["template", "use", "component", "users", "--yes"], tmp_path)
+
+    assert code == 0
+    assert (tmp_path / "users" / "api" / "route.ts").exists()

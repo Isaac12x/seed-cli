@@ -3,12 +3,16 @@ from __future__ import annotations
 
 import argparse
 import sys
+import tempfile
+from dataclasses import dataclass
 from pathlib import Path
-import re
+from types import SimpleNamespace
+
+import click
 
 from seed_cli import __version__
 from seed_cli.logging import setup_logging, get_logger
-from seed_cli.ui import Summary, render_summary, render_list
+from seed_cli.ui import Summary, render_summary, render_list, should_color
 from seed_cli.parsers import read_input, parse_any
 from seed_cli.includes import resolve_includes
 from seed_cli.templating import apply_vars
@@ -33,11 +37,15 @@ from seed_cli.plugins import load_plugins
 from seed_cli.project_templates import (
     complete_registered_project_template_names,
     complete_project_template_paths,
+    iter_registered_project_template_dirs,
     list_registered_project_templates,
     register_spec_project_templates,
+    render_template_path,
     resolve_registered_project_template,
     resolve_project_template_path,
+    template_variable_names,
 )
+from seed_cli.spec_formats import TREE_LIKE_SUFFIXES, strip_tree_like_suffix
 
 log = get_logger("cli")
 DEFAULT_TTL = 30
@@ -95,24 +103,105 @@ def _single_template_var_name(spec_path: str, base: Path) -> str | None:
     from seed_cli.parsers import parse_spec
 
     _, nodes = parse_spec(spec_path, base=base)
-    names = sorted({
-        match.group(1)
-        for node in nodes
-        for annotation in [node.annotation or ""]
-        if annotation.startswith("template:")
-        for match in [re.match(r"template:([a-zA-Z_][a-zA-Z0-9_]*)$", annotation)]
-        if match
-    })
+    names = sorted(template_variable_names(nodes))
     if len(names) == 1:
         return names[0]
     return None
+
+
+def _visible_project_templates(start: Path) -> list[tuple[str, Path]]:
+    """Return visible project-local templates as (display name, path), nearest first."""
+    directories = list(iter_registered_project_template_dirs(start))
+    rows: list[tuple[str, Path]] = []
+
+    for path in list_registered_project_templates(start):
+        rel = None
+        for directory in directories:
+            try:
+                rel = path.relative_to(directory)
+                break
+            except ValueError:
+                continue
+        if rel is None:
+            rel = Path(path.name)
+
+        name_path = (
+            strip_tree_like_suffix(rel)
+            if rel.suffix.lower() in TREE_LIKE_SUFFIXES
+            else rel
+        )
+        rows.append((name_path.as_posix(), path))
+
+    return rows
+
+
+def _parse_vars_with_folder(
+    *,
+    spec_path: Path,
+    base: Path,
+    vars_values: list[str] | tuple[str, ...] | None,
+    folder: str | None,
+) -> dict[str, str]:
+    """Parse --vars and optional positional folder into template values."""
+    parsed = parse_vars(list(vars_values or []))
+    if not folder:
+        return parsed
+
+    if "=" in folder:
+        key, value = folder.split("=", 1)
+        parsed.setdefault(key, value)
+        return parsed
+
+    implicit_var_name = _single_template_var_name(str(spec_path), base)
+    if not implicit_var_name:
+        raise ValueError(
+            "Could not infer which template variable to populate. "
+            "Provide varname=value explicitly."
+        )
+    parsed.setdefault(implicit_var_name, folder)
+    return parsed
+
+
+def _render_template_nodes(nodes: list, template_values: dict) -> list:
+    """Render project-style <var> path placeholders in parsed nodes."""
+    names = template_variable_names(nodes)
+    if not names:
+        return nodes
+
+    string_values = {str(key): str(value) for key, value in template_values.items()}
+    missing = [name for name in names if name not in string_values]
+    if missing:
+        raise ValueError(f"Missing template values: {', '.join(sorted(missing))}")
+
+    rendered_nodes = []
+    for node in nodes:
+        rel = node.relpath.as_posix()
+        rendered_rel = (
+            rel if rel in ("", ".") else render_template_path(rel, string_values)
+        )
+        if rendered_rel is None:
+            raise ValueError(f"Missing template values for path: {rel}")
+        annotation = node.annotation
+        if annotation and annotation.startswith("template:"):
+            annotation = None
+        rendered_nodes.append(
+            type(node)(
+                relpath=Path(rendered_rel),
+                is_dir=node.is_dir,
+                comment=node.comment,
+                annotation=annotation,
+                optional=node.optional,
+                metadata=dict(node.metadata),
+            )
+        )
+    return rendered_nodes
 
 
 def parse_spec_file(spec_path: str, vars: dict, base: Path, plugins: list, context: dict) -> tuple[Path, list]:
     """Parse a spec file (text, image, or graphviz) into nodes.
     
     Handles:
-    - Text files (.tree, .yaml, .json)
+    - Text files (.tree, .seed, .yaml, .json)
     - Image files (.png, .jpg, .jpeg)
     - Graphviz files (.dot)
     
@@ -190,7 +279,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Parse spec, run plugin parse + plan lifecycle, and output plan",
         help="Parse spec and generate execution plan",
     )
-    sp.add_argument("spec", help="Spec file (.tree, .yaml, .json, .dot, or image)")
+    sp.add_argument("spec", help="Spec file (.tree, .seed, .yaml, .json, .dot, or image)")
     sp.add_argument("--base", default=".", help="Base directory (default: current directory)")
     sp.add_argument("--vars", action="append", help="Template variables (key=value)")
     sp.add_argument("--out", help="Output plan to file (JSON format)")
@@ -217,7 +306,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Register template-capable specs into project .seed support files and remove stale literal placeholder paths",
         help="Register project-local templates from a spec",
     )
-    sreg.add_argument("spec", help="Spec file (.tree, .yaml, .json, .dot, or image)")
+    sreg.add_argument("spec", help="Spec file (.tree, .seed, .yaml, .json, .dot, or image)")
     sreg.add_argument("--base", default=".", help="Base directory (default: current directory)")
     sreg.add_argument("--vars", action="append", help="Template variables (key=value)")
 
@@ -472,6 +561,15 @@ def build_parser() -> argparse.ArgumentParser:
     specs_diff.add_argument("v2", help="Second version (e.g., 2 or v2)")
     specs_diff.add_argument("--base", default=".", help="Base directory")
 
+    # specs watch
+    specs_watch = specs_sub.add_parser(
+        "watch",
+        description="Watch filesystem changes and capture spec history continuously",
+        help="Watch and capture spec history",
+    )
+    specs_watch.add_argument("--base", default=".", help="Base directory")
+    specs_watch.add_argument("--interval", type=float, default=1.0, help="Check interval in seconds")
+
     # templates - manage reusable specs from GitHub
     stpl = sub.add_parser(
         "templates",
@@ -486,6 +584,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="List all stored templates",
         help="List templates",
     )
+    tpl_list.add_argument("--base", default=".", help="Base directory for project templates (default: current directory)")
 
     # templates add <github_url>
     tpl_add = templates_sub.add_parser(
@@ -514,6 +613,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Use a template",
     )
     tpl_use.add_argument("name", help="Template name to use")
+    tpl_use.add_argument("folder", nargs="?", help="Target folder/name for single-variable templates")
     tpl_use.add_argument("--version", "-v", help="Version to use (default: current)")
     tpl_use.add_argument("--base", default=".", help="Base directory (default: current directory)")
     tpl_use.add_argument("--vars", action="append", help="Template variables (key=value)")
@@ -604,46 +704,17 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def main(argv=None) -> int:
-    parser = build_parser()
+def _run(args) -> int:
+    setup_logging(getattr(args, "verbose", False), getattr(args, "debug", False))
 
-    # Enable tab completion (requires: activate-global-python-argcomplete)
-    try:
-        import argcomplete
-    except ImportError:
-        argcomplete = None
-    if argcomplete is not None:
-        argcomplete.autocomplete(parser)
-
-    args = parser.parse_args(argv or sys.argv[1:])
-    
-    # If no command provided, auto-apply a single .seed/.tree spec in cwd.
-    if not args.cmd:
-        try:
-            default_spec = _discover_default_spec(Path.cwd())
-        except ValueError as e:
-            print(f"seed: error: {e}")
-            return 1
-        if default_spec is None:
-            print("seed: error: no command provided\n")
-            print("Available commands:")
-            subparsers = parser._subparsers._group_actions[0]
-            for name, subparser in sorted(subparsers.choices.items()):
-                help_text = getattr(subparser, 'help', '') or getattr(subparser, 'description', '')
-                if help_text:
-                    print(f"  {name:12} {help_text}")
-                else:
-                    print(f"  {name}")
-            print("\nUse 'seed <command> -h' for help on a specific command.")
-            return 1
-        _configure_default_apply(args, default_spec)
-        print(f"Auto-applying spec: {default_spec.name}")
-    
-    setup_logging(args.verbose, args.debug)
+    args.ignore = list(getattr(args, "ignore", []) or [])
+    args.targets = list(getattr(args, "targets", []) or [])
+    args.target_mode = getattr(args, "target_mode", "prefix")
 
 
     base = Path(getattr(args, "base", ".")).resolve()
     vars = parse_vars(getattr(args, "vars", []))
+    color = should_color()
 
     plugins = load_plugins()
     context = {
@@ -685,7 +756,7 @@ def main(argv=None) -> int:
                 return 0
 
             show_skip = not getattr(args, "no_skip", False)
-            print(plan.to_text(show_skip=show_skip))
+            print(plan.to_text(show_skip=show_skip, color=color))
             return 0
         except Exception as e:
             log.error(f"Error planning: {e}")
@@ -742,7 +813,7 @@ def main(argv=None) -> int:
             spec_version = result.pop("spec_version", None)
             spec_path = result.pop("spec_path", None)
             summary = Summary(**result)
-            print(render_summary(summary))
+            print(render_summary(summary, color=color))
             if spec_version:
                 print(f"\nSpec captured: v{spec_version} ({spec_path})")
             if snapshot_id:
@@ -783,11 +854,11 @@ def main(argv=None) -> int:
             plan = build_maintenance_plan(args.manifest)
             if not args.execute:
                 print("DRY RUN - No maintenance commands will be executed\n")
-                print(plan.to_text())
+                print(plan.to_text(color=color))
                 return 0
 
             result = execute_maintenance_plan(plan, dry_run=False)
-            print(plan.to_text())
+            print(plan.to_text(color=color))
             print()
             print("Maintenance summary:")
             print(f"Checked: {result['checked']}")
@@ -805,10 +876,10 @@ def main(argv=None) -> int:
     if args.cmd == "diff":
         _, nodes = parse_spec_file(args.spec, vars, base, plugins, context)
         res = diff(nodes, base, ignore=args.ignore, skip_sublevels=args.no_sublevels)
-        print(render_list("Missing", res.missing))
-        print(render_list("Extra", res.extra))
-        print(render_list("Type Mismatch", res.type_mismatch))
-        print(render_list("Drift", res.drift))
+        print(render_list("Missing", res.missing, color=color))
+        print(render_list("Extra", res.extra, color=color))
+        print(render_list("Type Mismatch", res.type_mismatch, color=color))
+        print(render_list("Drift", res.drift, color=color))
         return 0 if res.is_clean() else 1
 
     # ---------------- MATCH ----------------
@@ -834,7 +905,7 @@ def main(argv=None) -> int:
                     target_mode=args.target_mode,
                 )
                 print("DRY RUN - No changes will be made\n")
-                print(plan.to_text())
+                print(plan.to_text(color=color))
                 return 0
             else:
                 result = do_match(
@@ -856,7 +927,7 @@ def main(argv=None) -> int:
                 spec_version = result.pop("spec_version", None)
                 spec_path = result.pop("spec_path", None)
                 summary = Summary(**result)
-                print(render_summary(summary))
+                print(render_summary(summary, color=color))
                 if spec_version:
                     print(f"\nSpec captured: v{spec_version} ({spec_path})")
                 if snapshot_id:
@@ -884,7 +955,7 @@ def main(argv=None) -> int:
 
         if getattr(args, "template", None):
             if not Path(args.template).is_absolute():
-                print("Error: --template must be a full path to a .tree file")
+                print("Error: --template must be a full path to a .tree or .seed file")
                 return 1
             if not create_args:
                 print("Error: provide a target folder name or template values")
@@ -894,7 +965,7 @@ def main(argv=None) -> int:
                 print(f"Error: Template not found: {args.template}")
                 return 1
             if resolved_template.is_dir():
-                print(f"Error: Template path must point to a .tree file: {args.template}")
+                print(f"Error: Template path must point to a .tree or .seed file: {args.template}")
                 return 1
             spec_source = str(resolved_template)
             raw_values = create_args
@@ -921,7 +992,7 @@ def main(argv=None) -> int:
                 raw_values = [f"{var_name}={args.project}"]
         else:
             if not create_args:
-                print("Error: provide a template name and target folder, or use --template /full/path/to/spec.tree")
+                print("Error: provide a template name and target folder, or use --template /full/path/to/spec.tree or spec.seed")
                 return 1
             template_ref = create_args[0]
             raw_values = create_args[1:]
@@ -1064,7 +1135,7 @@ def main(argv=None) -> int:
         _, nodes = parse_spec_file(args.spec, vars, base, plugins, context)
         issues = doctor(nodes, base, fix=args.fix)
         if issues:
-            print(render_list("Issues", issues))
+            print(render_list("Issues", issues, color=color))
             return 1
         print("Spec is healthy.")
         return 0
@@ -1092,6 +1163,7 @@ def main(argv=None) -> int:
             get_spec_version,
             get_current_spec,
             diff_spec_versions,
+            watch_specs,
         )
 
         # Default to list if no action specified
@@ -1150,6 +1222,13 @@ def main(argv=None) -> int:
             except ValueError as e:
                 print(f"Error: {e}")
                 return 1
+
+        if action == "watch":
+            try:
+                watch_specs(base, interval=args.interval, ignore=args.ignore)
+            except KeyboardInterrupt:
+                pass
+            return 0
 
         return 0
 
@@ -1238,7 +1317,7 @@ def main(argv=None) -> int:
                     result = switch_version(base, version, dry_run=True)
                     plan = result["plan"]
                     print(f"DRY RUN - Preview {action} to {result['version']}\n")
-                    print(plan.to_text())
+                    print(plan.to_text(color=color))
                 else:
                     result = switch_version(base, version, dangerous=True)
                     print(f"Switched to version: {version}")
@@ -1248,7 +1327,7 @@ def main(argv=None) -> int:
                         deleted=result.get("deleted", 0),
                         skipped=result.get("skipped", 0),
                     )
-                    print(render_summary(summary))
+                    print(render_summary(summary, color=color))
                 return 0
             except FileNotFoundError as e:
                 print(f"Error: {e}")
@@ -1307,13 +1386,22 @@ def main(argv=None) -> int:
 
         # Default: list if no action specified
         if not action or action == "list":
+            project_templates = _visible_project_templates(base)
             templates = list_templates()
-            if not templates:
-                print("No templates stored.")
+            if not project_templates and not templates:
+                print("No templates found.")
                 print("\nUse 'seed templates add <github_url>' to add a template.")
                 return 0
 
-            print("Stored templates:\n")
+            if project_templates:
+                print("Project templates:\n")
+                for name, path in project_templates:
+                    print(f"  {name}")
+                    print(f"    Path: {path}")
+                print()
+
+            if templates:
+                print("Stored templates:\n")
             for tmpl in templates:
                 locked_str = " [LOCKED]" if tmpl.locked else ""
                 print(f"  {tmpl.name}{locked_str}")
@@ -1425,9 +1513,9 @@ def main(argv=None) -> int:
 
         if action == "use":
             name = args.name
+            folder = getattr(args, "folder", None)
             version = getattr(args, "version", None)
             use_base = Path(getattr(args, "base", ".")).resolve()
-            cli_vars = parse_vars(getattr(args, "vars", []))
             yes = getattr(args, "yes", False)
             dry_run = getattr(args, "dry_run", False)
             data_file = getattr(args, "data_file", None)
@@ -1438,6 +1526,64 @@ def main(argv=None) -> int:
             overwrite = getattr(args, "overwrite", False)
 
             # Get template spec path
+            project_spec_path = None
+            if not version:
+                try:
+                    project_spec_path = resolve_registered_project_template(name, use_base)
+                except FileNotFoundError:
+                    project_spec_path = None
+
+            if project_spec_path:
+                try:
+                    from seed_cli.match import create_from_template
+
+                    cli_vars = _parse_vars_with_folder(
+                        spec_path=project_spec_path,
+                        base=use_base,
+                        vars_values=getattr(args, "vars", []),
+                        folder=folder,
+                    )
+                    data_vars = load_data_file(data_file)
+                    use_vars = resolve_template_vars(
+                        config={},
+                        cli_vars=cli_vars,
+                        data_vars=data_vars,
+                        defaults=defaults,
+                        non_interactive=non_interactive,
+                    )
+
+                    print(f"Using project template: {name}")
+                    print(f"Template path: {project_spec_path}")
+                    print(f"Base directory: {use_base}")
+                    print()
+
+                    result = create_from_template(
+                        str(project_spec_path),
+                        use_base,
+                        {str(k): str(v) for k, v in use_vars.items()},
+                        dry_run=dry_run,
+                    )
+
+                    if dry_run:
+                        print("DRY RUN - Would create:\n")
+                        for p in result["paths"]:
+                            print(f"  {p}")
+                        print(f"\nTotal: {result['created']} items")
+                    else:
+                        print(f"Created {result['created']} items:")
+                        for p in result["paths"]:
+                            print(f"  {p}")
+                    return 0
+                except ValueError as e:
+                    print(f"Error: {e}")
+                    return 1
+                except Exception as e:
+                    log.error(f"Error using project template: {e}")
+                    if args.debug:
+                        import traceback
+                        traceback.print_exc()
+                    return 1
+
             spec_path = get_template_spec_path(name, version)
             if not spec_path:
                 print(f"Template not found: {name}")
@@ -1452,6 +1598,12 @@ def main(argv=None) -> int:
             print()
 
             try:
+                cli_vars = _parse_vars_with_folder(
+                    spec_path=spec_path,
+                    base=use_base,
+                    vars_values=getattr(args, "vars", []),
+                    folder=folder,
+                )
                 content_dir = get_template_content_dir(name, version)
                 config_path = get_template_config_path(name, version)
                 config = load_template_config(config_path)
@@ -1475,6 +1627,7 @@ def main(argv=None) -> int:
 
                 # Parse spec and build plan
                 _, nodes = parse_spec_file(str(spec_path), use_vars, use_base, plugins, local_context)
+                nodes = _render_template_nodes(nodes, use_vars)
 
                 for p in plugins:
                     p.after_parse(nodes, local_context)
@@ -1496,7 +1649,7 @@ def main(argv=None) -> int:
                     p.after_plan(plan, local_context)
 
                 # Show plan
-                print(plan.to_text())
+                print(plan.to_text(color=color))
                 if tasks:
                     if unsafe:
                         print(f"\nTemplate tasks: {len(tasks)} (will run after apply)")
@@ -1518,22 +1671,26 @@ def main(argv=None) -> int:
                 run_hooks(hooks, "pre_apply", cwd=use_base, strict=True)
 
                 # Apply the template
-                result = apply(
-                    str(spec_path),
-                    use_base,
-                    dangerous=False,
-                    plugins=plugins,
-                    dry_run=False,
-                    force=overwrite,
-                    vars=use_vars,
-                    template_dir=content_dir,
-                    ignore=args.ignore,
-                    targets=args.targets,
-                    target_mode=args.target_mode,
-                    step_hooks=hooks,
-                    template_exclude=exclude_patterns,
-                    template_skip_if_exists=skip_existing_patterns,
-                )
+                with tempfile.TemporaryDirectory(prefix="seed-template-") as tmpdir:
+                    rendered_spec_path = Path(tmpdir) / "rendered.tree"
+                    rendered_spec_path.write_text(to_tree_text(nodes), encoding="utf-8")
+                    result = apply(
+                        str(rendered_spec_path),
+                        use_base,
+                        dangerous=False,
+                        plugins=plugins,
+                        dry_run=False,
+                        force=overwrite,
+                        vars=use_vars,
+                        template_dir=content_dir,
+                        ignore=args.ignore,
+                        targets=args.targets,
+                        target_mode=args.target_mode,
+                        step_hooks=hooks,
+                        template_exclude=exclude_patterns,
+                        template_skip_if_exists=skip_existing_patterns,
+                        register_project_templates=False,
+                    )
                 run_hooks(hooks, "post_apply", strict=True, cwd=use_base)
 
                 executed_tasks = run_template_tasks(
@@ -1561,7 +1718,7 @@ def main(argv=None) -> int:
                 spec_version = result.pop("spec_version", None)
                 result_spec_path = result.pop("spec_path", None)
                 summary = Summary(**result)
-                print(render_summary(summary))
+                print(render_summary(summary, color=color))
                 if spec_version:
                     print(f"\nSpec captured: v{spec_version} ({result_spec_path})")
                 if snapshot_id:
@@ -1578,6 +1735,18 @@ def main(argv=None) -> int:
         if action == "show":
             name = args.name
             version = getattr(args, "version", None)
+
+            if not version:
+                try:
+                    project_spec_path = resolve_registered_project_template(name, base)
+                except FileNotFoundError:
+                    project_spec_path = None
+                if project_spec_path:
+                    print(f"# Project template: {name}")
+                    print(f"# Path: {project_spec_path}")
+                    print()
+                    print(project_spec_path.read_text())
+                    return 0
 
             spec_path = get_template_spec_path(name, version)
             if not spec_path:
@@ -1764,6 +1933,678 @@ def main(argv=None) -> int:
         return 1
 
     return 1
+
+
+CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
+
+
+@dataclass(frozen=True)
+class CommandSection:
+    title: str
+    commands: tuple[str, ...]
+
+
+ROOT_COMMAND_SECTIONS = (
+    CommandSection("Plan & Apply", ("plan", "diff", "apply", "sync", "match")),
+    CommandSection("Templates", ("register", "create", "templates")),
+    CommandSection("State & History", ("capture", "revert", "specs", "lock")),
+    CommandSection("Maintenance", ("doctor", "maintain", "hooks")),
+    CommandSection("Export & Utilities", ("export", "utils")),
+)
+
+LOCK_COMMAND_SECTIONS = (
+    CommandSection("Inspect", ("status", "list")),
+    CommandSection("Version Changes", ("set", "upgrade", "downgrade")),
+    CommandSection("Enforce", ("watch",)),
+)
+
+SPECS_COMMAND_SECTIONS = (
+    CommandSection("Browse", ("list", "show", "diff")),
+    CommandSection("Automate", ("watch",)),
+)
+
+TEMPLATE_COMMAND_SECTIONS = (
+    CommandSection("Browse", ("list", "show")),
+    CommandSection("Apply", ("use",)),
+    CommandSection("Manage", ("add", "update", "versions", "lock", "remove")),
+)
+
+UTILS_COMMAND_SECTIONS = (
+    CommandSection("Images", ("extract-tree",)),
+    CommandSection("State", ("state-lock",)),
+)
+
+
+class GroupedHelpGroup(click.Group):
+    """Click group that renders command help in curated sections."""
+
+    def __init__(
+        self,
+        *args,
+        command_sections: tuple[CommandSection, ...] = (),
+        command_aliases: dict[str, tuple[str, ...]] | None = None,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        self.command_sections = tuple(command_sections)
+        self.command_aliases = command_aliases or {}
+
+    def _command_rows(
+        self,
+        ctx: click.Context,
+        names: tuple[str, ...],
+        formatter: click.HelpFormatter,
+        seen_command_ids: set[int],
+    ) -> list[tuple[str, str]]:
+        rows = []
+        commands = [(name, self.get_command(ctx, name)) for name in names]
+        commands = [
+            (name, command)
+            for name, command in commands
+            if command is not None and not command.hidden
+        ]
+        if not commands:
+            return rows
+
+        max_len = max(len(name) for name, _ in commands)
+        limit = formatter.width - 6 - max_len
+
+        for name, command in commands:
+            command_id = id(command)
+            if command_id in seen_command_ids:
+                continue
+
+            seen_command_ids.add(command_id)
+            help_text = command.get_short_help_str(limit)
+            aliases = self.command_aliases.get(name)
+            if aliases:
+                help_text = f"{help_text} (alias: {', '.join(aliases)})"
+            rows.append((name, help_text))
+
+        return rows
+
+    def format_commands(
+        self,
+        ctx: click.Context,
+        formatter: click.HelpFormatter,
+    ) -> None:
+        seen_command_ids: set[int] = set()
+
+        with formatter.section("Commands"):
+            wrote_any = False
+            for section in self.command_sections:
+                rows = self._command_rows(
+                    ctx,
+                    section.commands,
+                    formatter,
+                    seen_command_ids,
+                )
+                if not rows:
+                    continue
+
+                with formatter.section(section.title):
+                    formatter.write_dl(rows)
+                wrote_any = True
+
+            remaining_names = []
+            for name in self.list_commands(ctx):
+                command = self.get_command(ctx, name)
+                if command is None or command.hidden:
+                    continue
+                if id(command) in seen_command_ids:
+                    continue
+                remaining_names.append(name)
+
+            if remaining_names:
+                title = "Other" if wrote_any else None
+                rows = self._command_rows(
+                    ctx,
+                    tuple(remaining_names),
+                    formatter,
+                    seen_command_ids,
+                )
+                if title:
+                    with formatter.section(title):
+                        formatter.write_dl(rows)
+                else:
+                    formatter.write_dl(rows)
+
+
+def _version_callback(ctx: click.Context, param: click.Option, value: bool) -> None:
+    if not value or ctx.resilient_parsing:
+        return
+    click.echo(f"seed {__version__}")
+    ctx.exit(0)
+
+
+def _root_options(ctx: click.Context) -> dict:
+    root = ctx.find_root()
+    data = dict(root.obj or {})
+    data["ignore"] = list(data.get("ignore", []) or [])
+    data["targets"] = list(data.get("targets", []) or [])
+    return data
+
+
+def _dispatch(ctx: click.Context, cmd: str, **attrs) -> int:
+    data = _root_options(ctx)
+    data.update(attrs)
+    args = SimpleNamespace(cmd=cmd, **data)
+    return _run(args)
+
+
+def _complete_visible_template_names(ctx: click.Context, param, incomplete: str) -> list[str]:
+    base = Path(ctx.params.get("base") or ".").resolve()
+    suggestions = complete_registered_project_template_names(incomplete, base)
+    try:
+        from seed_cli.template_registry import load_registry
+
+        suggestions.extend(
+            name for name in load_registry().keys() if name.startswith(incomplete or "")
+        )
+    except Exception:
+        pass
+    return sorted(set(suggestions))
+
+
+def _complete_project_template_names_click(
+    ctx: click.Context, param, incomplete: str
+) -> list[str]:
+    base = Path(ctx.params.get("base") or ".").resolve()
+    return complete_registered_project_template_names(incomplete, base)
+
+
+@click.group(
+    cls=GroupedHelpGroup,
+    command_sections=ROOT_COMMAND_SECTIONS,
+    command_aliases={"templates": ("template",)},
+    context_settings=CONTEXT_SETTINGS,
+    invoke_without_command=True,
+    help="Terraform-inspired filesystem orchestration tool.",
+)
+@click.option(
+    "--version",
+    is_flag=True,
+    is_eager=True,
+    expose_value=False,
+    callback=_version_callback,
+    help="Show the version and exit.",
+)
+@click.option("--verbose", is_flag=True, help="Enable verbose logging.")
+@click.option("--debug", is_flag=True, help="Enable debug logging.")
+@click.option("--ignore", multiple=True, help="Extra ignore pattern (glob).")
+@click.option("--targets", multiple=True, help="Extra target (glob).")
+@click.option(
+    "--target-mode",
+    type=click.Choice(["prefix", "exact"]),
+    default="prefix",
+    show_default=True,
+    help="Target matching mode.",
+)
+@click.pass_context
+def click_cli(
+    ctx: click.Context,
+    verbose: bool,
+    debug: bool,
+    ignore: tuple[str, ...],
+    targets: tuple[str, ...],
+    target_mode: str,
+) -> None:
+    ctx.obj = {
+        "verbose": verbose,
+        "debug": debug,
+        "ignore": list(ignore),
+        "targets": list(targets),
+        "target_mode": target_mode,
+    }
+    if ctx.invoked_subcommand is None:
+        click.echo("seed: error: no command provided\n")
+        click.echo("Available commands:\n")
+        click.echo(ctx.get_help())
+        ctx.exit(1)
+
+
+@click_cli.command("plan", help="Parse spec and generate an execution plan.")
+@click.argument("spec")
+@click.option("--base", default=".", show_default=True, help="Base directory.")
+@click.option("--vars", "vars_", multiple=True, help="Template variable (key=value).")
+@click.option("--out", help="Output plan to a JSON file.")
+@click.option("--dot", is_flag=True, help="Output plan as Graphviz DOT.")
+@click.option("--no-skip", is_flag=True, help="Hide SKIP lines in output.")
+@click.pass_context
+def plan_command(ctx, spec, base, vars_, out, dot, no_skip):
+    return _dispatch(ctx, "plan", spec=spec, base=base, vars=list(vars_), out=out, dot=dot, no_skip=no_skip)
+
+
+@click_cli.command("apply", help="Execute a spec or saved plan.")
+@click.argument("spec")
+@click.option("--base", default=".", show_default=True, help="Base directory.")
+@click.option("--dangerous", is_flag=True, help="Allow dangerous operations.")
+@click.option("--dry-run", is_flag=True, help="Preview without making changes.")
+@click.option("--yes", "-y", is_flag=True, help="Create all optional items.")
+@click.option("--skip-optional", is_flag=True, help="Skip all optional items.")
+@click.pass_context
+def apply_command(ctx, spec, base, dangerous, dry_run, yes, skip_optional):
+    return _dispatch(ctx, "apply", spec=spec, base=base, dangerous=dangerous, dry_run=dry_run, yes=yes, skip_optional=skip_optional)
+
+
+@click_cli.command("register", help="Register project-local templates from a spec.")
+@click.argument("spec")
+@click.option("--base", default=".", show_default=True, help="Base directory.")
+@click.option("--vars", "vars_", multiple=True, help="Template variable (key=value).")
+@click.pass_context
+def register_command(ctx, spec, base, vars_):
+    return _dispatch(ctx, "register", spec=spec, base=base, vars=list(vars_))
+
+
+@click_cli.command("sync", help="Apply a spec and delete extraneous files.")
+@click.argument("spec")
+@click.option("--base", default=".", show_default=True, help="Base directory.")
+@click.option("--dangerous", is_flag=True, help="Required unless --dry-run is used.")
+@click.option("--dry-run", is_flag=True, help="Preview without making changes.")
+@click.option("--yes", "-y", is_flag=True, help="Create all optional items.")
+@click.option("--skip-optional", is_flag=True, help="Skip all optional items.")
+@click.pass_context
+def sync_command(ctx, spec, base, dangerous, dry_run, yes, skip_optional):
+    return _dispatch(ctx, "sync", spec=spec, base=base, dangerous=dangerous, dry_run=dry_run, yes=yes, skip_optional=skip_optional)
+
+
+@click_cli.command("diff", help="Compare spec with filesystem state.")
+@click.argument("spec")
+@click.option("--base", default=".", show_default=True, help="Base directory.")
+@click.option("--ignore", multiple=True, help="Ignore path matching glob.")
+@click.option("--no-sublevels", is_flag=True, help="Hide extras inside spec directories.")
+@click.pass_context
+def diff_command(ctx, spec, base, ignore, no_sublevels):
+    return _dispatch(ctx, "diff", spec=spec, base=base, ignore=list(ignore), no_sublevels=no_sublevels)
+
+
+@click_cli.command("match", help="Modify filesystem to match a spec.")
+@click.argument("spec")
+@click.option("--base", default=".", show_default=True, help="Base directory.")
+@click.option("--dangerous", is_flag=True, help="Required unless --dry-run is used.")
+@click.option("--dry-run", is_flag=True, help="Preview without making changes.")
+@click.option("--yes", "-y", is_flag=True, help="Create all optional items.")
+@click.option("--skip-optional", is_flag=True, help="Skip all optional items.")
+@click.pass_context
+def match_command(ctx, spec, base, dangerous, dry_run, yes, skip_optional):
+    return _dispatch(ctx, "match", spec=spec, base=base, dangerous=dangerous, dry_run=dry_run, yes=yes, skip_optional=skip_optional)
+
+
+@click_cli.command("maintain", help="Build or execute a maintenance plan.")
+@click.argument("manifest")
+@click.option("--execute", is_flag=True, help="Run maintenance commands.")
+@click.pass_context
+def maintain_command(ctx, manifest, execute):
+    return _dispatch(ctx, "maintain", manifest=manifest, execute=execute)
+
+
+@click_cli.command("create", help="Create a new instance of a template structure.")
+@click.option("--template", help="Project template path.")
+@click.option(
+    "--project",
+    shell_complete=_complete_project_template_names_click,
+    help="Registered project template name.",
+)
+@click.argument("create_args", nargs=-1)
+@click.option("--base", default=".", show_default=True, help="Base directory.")
+@click.option("--dry-run", is_flag=True, help="Preview without making changes.")
+@click.pass_context
+def create_command(ctx, template, project, create_args, base, dry_run):
+    return _dispatch(
+        ctx,
+        "create",
+        template=template,
+        project=project,
+        create_args=list(create_args),
+        base=base,
+        dry_run=dry_run,
+    )
+
+
+@click_cli.command("revert", help="Revert filesystem to a previous snapshot.")
+@click.argument("snapshot_id", required=False)
+@click.option("--base", default=".", show_default=True, help="Base directory.")
+@click.option("--list", "list_snapshots", is_flag=True, help="List available snapshots.")
+@click.option("--dry-run", is_flag=True, help="Preview without making changes.")
+@click.option("--delete", "delete_", metavar="ID", help="Delete a snapshot.")
+@click.pass_context
+def revert_command(ctx, snapshot_id, base, list_snapshots, dry_run, delete_):
+    return _dispatch(ctx, "revert", snapshot_id=snapshot_id, base=base, list_snapshots=list_snapshots, dry_run=dry_run, delete=delete_)
+
+
+@click_cli.command("doctor", help="Lint a spec and optionally auto-fix issues.")
+@click.argument("spec")
+@click.option("--base", default=".", show_default=True, help="Base directory.")
+@click.option("--fix", is_flag=True, help="Automatically fix issues when possible.")
+@click.pass_context
+def doctor_command(ctx, spec, base, fix):
+    return _dispatch(ctx, "doctor", spec=spec, base=base, fix=fix)
+
+
+@click_cli.command("capture", help="Capture current filesystem state as a spec.")
+@click.option("--base", default=".", show_default=True, help="Base directory.")
+@click.option("--json", "as_json", is_flag=True, help="Output JSON.")
+@click.option("--dot", is_flag=True, help="Output Graphviz DOT.")
+@click.option("--out", help="Output file path.")
+@click.pass_context
+def capture_command(ctx, base, as_json, dot, out):
+    return _dispatch(ctx, "capture", base=base, json=as_json, dot=dot, out=out)
+
+
+@click_cli.command("export", help="Export filesystem state or plans.")
+@click.argument("kind", type=click.Choice(["tree", "json", "plan", "dot"]))
+@click.option("--input", "input_", help="Input spec or plan file.")
+@click.option("--out", required=True, help="Output file path.")
+@click.option("--base", default=".", show_default=True, help="Base directory.")
+@click.pass_context
+def export_command(ctx, kind, input_, out, base):
+    return _dispatch(ctx, "export", kind=kind, input=input_, out=out, base=base)
+
+
+@click_cli.group(
+    "lock",
+    cls=GroupedHelpGroup,
+    command_sections=LOCK_COMMAND_SECTIONS,
+    context_settings=CONTEXT_SETTINGS,
+    invoke_without_command=True,
+    help="Manage structure locks.",
+)
+@click.pass_context
+def lock_group(ctx):
+    if ctx.invoked_subcommand is None:
+        return _dispatch(ctx, "lock", lock_action=None, base=".")
+
+
+@lock_group.command("set", help="Set the active structure spec.")
+@click.argument("spec")
+@click.option("--base", default=".", show_default=True, help="Base directory.")
+@click.option("--version", "-v", help="Version name.")
+@click.pass_context
+def lock_set_command(ctx, spec, base, version):
+    return _dispatch(ctx, "lock", lock_action="set", spec=spec, base=base, version=version)
+
+
+@lock_group.command("watch", help="Watch and enforce structure.")
+@click.option("--base", default=".", show_default=True, help="Base directory.")
+@click.option("--interval", type=float, default=1.0, show_default=True, help="Check interval in seconds.")
+@click.pass_context
+def lock_watch_command(ctx, base, interval):
+    return _dispatch(ctx, "lock", lock_action="watch", base=base, interval=interval)
+
+
+@lock_group.command("list", help="List structure versions.")
+@click.option("--base", default=".", show_default=True, help="Base directory.")
+@click.pass_context
+def lock_list_command(ctx, base):
+    return _dispatch(ctx, "lock", lock_action="list", base=base)
+
+
+@lock_group.command("status", help="Show structure lock status.")
+@click.option("--base", default=".", show_default=True, help="Base directory.")
+@click.pass_context
+def lock_status_command(ctx, base):
+    return _dispatch(ctx, "lock", lock_action="status", base=base)
+
+
+@lock_group.command("upgrade", help="Upgrade to a newer structure version.")
+@click.argument("version")
+@click.option("--base", default=".", show_default=True, help="Base directory.")
+@click.option("--dangerous", is_flag=True, help="Apply changes.")
+@click.option("--dry-run", is_flag=True, help="Preview without making changes.")
+@click.pass_context
+def lock_upgrade_command(ctx, version, base, dangerous, dry_run):
+    return _dispatch(ctx, "lock", lock_action="upgrade", version=version, base=base, dangerous=dangerous, dry_run=dry_run)
+
+
+@lock_group.command("downgrade", help="Downgrade to an older structure version.")
+@click.argument("version")
+@click.option("--base", default=".", show_default=True, help="Base directory.")
+@click.option("--dangerous", is_flag=True, help="Apply changes.")
+@click.option("--dry-run", is_flag=True, help="Preview without making changes.")
+@click.pass_context
+def lock_downgrade_command(ctx, version, base, dangerous, dry_run):
+    return _dispatch(ctx, "lock", lock_action="downgrade", version=version, base=base, dangerous=dangerous, dry_run=dry_run)
+
+
+@click_cli.group("hooks", context_settings=CONTEXT_SETTINGS, invoke_without_command=True, help="Manage git hooks.")
+@click.pass_context
+def hooks_group(ctx):
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+        ctx.exit(1)
+
+
+@hooks_group.command("install", help="Install git hooks.")
+@click.option("--hook", multiple=True, help="Hook name to install.")
+@click.pass_context
+def hooks_install_command(ctx, hook):
+    return _dispatch(ctx, "hooks", action="install", hook=list(hook) or None, base=".")
+
+
+@click_cli.group(
+    "specs",
+    cls=GroupedHelpGroup,
+    command_sections=SPECS_COMMAND_SECTIONS,
+    context_settings=CONTEXT_SETTINGS,
+    invoke_without_command=True,
+    help="View captured spec history.",
+)
+@click.pass_context
+def specs_group(ctx):
+    if ctx.invoked_subcommand is None:
+        return _dispatch(ctx, "specs", specs_action=None, base=".")
+
+
+@specs_group.command("list", help="List captured spec versions.")
+@click.option("--base", default=".", show_default=True, help="Base directory.")
+@click.pass_context
+def specs_list_command(ctx, base):
+    return _dispatch(ctx, "specs", specs_action="list", base=base)
+
+
+@specs_group.command("show", help="Show a captured spec version.")
+@click.argument("version", required=False)
+@click.option("--base", default=".", show_default=True, help="Base directory.")
+@click.pass_context
+def specs_show_command(ctx, version, base):
+    return _dispatch(ctx, "specs", specs_action="show", version=version, base=base)
+
+
+@specs_group.command("diff", help="Diff two captured spec versions.")
+@click.argument("v1")
+@click.argument("v2")
+@click.option("--base", default=".", show_default=True, help="Base directory.")
+@click.pass_context
+def specs_diff_command(ctx, v1, v2, base):
+    return _dispatch(ctx, "specs", specs_action="diff", v1=v1, v2=v2, base=base)
+
+
+@specs_group.command("watch", help="Watch filesystem changes and capture specs.")
+@click.option("--base", default=".", show_default=True, help="Base directory.")
+@click.option("--interval", type=float, default=1.0, show_default=True, help="Check interval in seconds.")
+@click.pass_context
+def specs_watch_command(ctx, base, interval):
+    return _dispatch(ctx, "specs", specs_action="watch", base=base, interval=interval)
+
+
+@click_cli.group(
+    "templates",
+    cls=GroupedHelpGroup,
+    command_sections=TEMPLATE_COMMAND_SECTIONS,
+    context_settings=CONTEXT_SETTINGS,
+    invoke_without_command=True,
+    help="Manage reusable templates.",
+)
+@click.pass_context
+def templates_group(ctx):
+    if ctx.invoked_subcommand is None:
+        return _dispatch(ctx, "templates", templates_action=None, base=".")
+
+
+@templates_group.command("list", help="List project and stored templates.")
+@click.option("--base", default=".", show_default=True, help="Base directory for project templates.")
+@click.pass_context
+def templates_list_command(ctx, base):
+    return _dispatch(ctx, "templates", templates_action="list", base=base)
+
+
+@templates_group.command("add", help="Add a template.")
+@click.argument("source")
+@click.option("--name", "-n", help="Name for the template.")
+@click.option("--version", "-v", help="Version name.")
+@click.option("--content-url", help="URL or local path for file contents.")
+@click.pass_context
+def templates_add_command(ctx, source, name, version, content_url):
+    return _dispatch(ctx, "templates", templates_action="add", source=source, name=name, version=version, content_url=content_url, base=".")
+
+
+@templates_group.command("remove", help="Remove a template.")
+@click.argument("name")
+@click.pass_context
+def templates_remove_command(ctx, name):
+    return _dispatch(ctx, "templates", templates_action="remove", name=name, base=".")
+
+
+@templates_group.command("use", help="Apply a template to the filesystem.")
+@click.argument("name", shell_complete=_complete_visible_template_names)
+@click.argument("folder", required=False)
+@click.option("--version", "-v", help="Version to use.")
+@click.option("--base", default=".", show_default=True, help="Base directory.")
+@click.option("--vars", "vars_", multiple=True, help="Template variable (key=value).")
+@click.option("--data-file", help="JSON/YAML file with template variables.")
+@click.option("--defaults", is_flag=True, help="Use defaults for unanswered questions.")
+@click.option("--non-interactive", is_flag=True, help="Fail if required variables are missing.")
+@click.option("--answers-file", help="Write resolved variables to this file.")
+@click.option("--unsafe", is_flag=True, help="Allow template-defined tasks.")
+@click.option("--overwrite", is_flag=True, help="Overwrite existing content files.")
+@click.option("--yes", "-y", is_flag=True, help="Apply without prompting.")
+@click.option("--dry-run", is_flag=True, help="Show plan without applying.")
+@click.pass_context
+def templates_use_command(
+    ctx,
+    name,
+    folder,
+    version,
+    base,
+    vars_,
+    data_file,
+    defaults,
+    non_interactive,
+    answers_file,
+    unsafe,
+    overwrite,
+    yes,
+    dry_run,
+):
+    return _dispatch(
+        ctx,
+        "templates",
+        templates_action="use",
+        name=name,
+        folder=folder,
+        version=version,
+        base=base,
+        vars=list(vars_),
+        data_file=data_file,
+        defaults=defaults,
+        non_interactive=non_interactive,
+        answers_file=answers_file,
+        unsafe=unsafe,
+        overwrite=overwrite,
+        yes=yes,
+        dry_run=dry_run,
+    )
+
+
+@templates_group.command("show", help="Show template content.")
+@click.argument("name", shell_complete=_complete_visible_template_names)
+@click.option("--version", "-v", help="Version to show.")
+@click.pass_context
+def templates_show_command(ctx, name, version):
+    return _dispatch(ctx, "templates", templates_action="show", name=name, version=version, base=".")
+
+
+@templates_group.command("lock", help="Lock or unlock a template.")
+@click.argument("name")
+@click.option("--version", "-v", help="Version to set before locking.")
+@click.option("--unlock", is_flag=True, help="Unlock instead of lock.")
+@click.pass_context
+def templates_lock_command(ctx, name, version, unlock):
+    return _dispatch(ctx, "templates", templates_action="lock", name=name, version=version, unlock=unlock, base=".")
+
+
+@templates_group.command("update", help="Update template content from source.")
+@click.argument("name", required=False)
+@click.option("--all", "update_all", is_flag=True, help="Update all templates with content_url.")
+@click.option("--content-url", help="Set a new content URL.")
+@click.pass_context
+def templates_update_command(ctx, name, update_all, content_url):
+    return _dispatch(ctx, "templates", templates_action="update", name=name, update_all=update_all, content_url=content_url, base=".")
+
+
+@templates_group.command("versions", help="Manage template versions.")
+@click.argument("name")
+@click.option("--add", "add_", metavar="PATH", help="Add a new version from file.")
+@click.option("--name", "version_name", metavar="VERSION", help="Name for the new version.")
+@click.option("--set-current", help="Set current version.")
+@click.pass_context
+def templates_versions_command(ctx, name, add_, version_name, set_current):
+    return _dispatch(ctx, "templates", templates_action="versions", name=name, add=add_, version_name=version_name, set_current=set_current, base=".")
+
+
+@click_cli.group(
+    "utils",
+    cls=GroupedHelpGroup,
+    command_sections=UTILS_COMMAND_SECTIONS,
+    context_settings=CONTEXT_SETTINGS,
+    invoke_without_command=True,
+    help="Utility commands.",
+)
+@click.pass_context
+def utils_group(ctx):
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+        ctx.exit(1)
+
+
+@utils_group.command("extract-tree", help="Extract tree structure from an image.")
+@click.argument("image")
+@click.option("--out", help="Output .tree file path.")
+@click.option("--vars", "vars_", multiple=True, help="Template variable (key=value).")
+@click.option("--raw", is_flag=True, help="Output raw OCR text.")
+@click.pass_context
+def utils_extract_tree_command(ctx, image, out, vars_, raw):
+    return _dispatch(ctx, "utils", util_action="extract-tree", image=image, out=out, vars=list(vars_), raw=raw, base=".")
+
+
+@utils_group.command("state-lock", help="Manage execution state locks.")
+@click.option("--base", default=".", show_default=True, help="Base directory.")
+@click.option("--renew", is_flag=True, help="Renew existing lock.")
+@click.option("--force-unlock", is_flag=True, help="Force unlock.")
+@click.pass_context
+def utils_state_lock_command(ctx, base, renew, force_unlock):
+    return _dispatch(ctx, "utils", util_action="state-lock", base=base, renew=renew, force_unlock=force_unlock)
+
+
+click_cli.add_command(templates_group, "template")
+
+
+def main(argv=None) -> int:
+    try:
+        result = click_cli.main(
+            args=sys.argv[1:] if argv is None else argv,
+            prog_name="seed",
+            standalone_mode=False,
+        )
+        return int(result or 0)
+    except click.exceptions.Exit as e:
+        return e.exit_code
+    except click.ClickException as e:
+        e.show()
+        return e.exit_code
+    except click.Abort:
+        click.echo("Aborted!", err=True)
+        return 1
 
 
 if __name__ == "__main__":

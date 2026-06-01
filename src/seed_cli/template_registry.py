@@ -15,10 +15,10 @@ Structure:
         └── <template-name>/
             ├── meta.json         # name, source, current_version, locked, versions[]
             ├── v1.tree
-            └── v2.tree
+            └── v2.seed
 
 Usage:
-    seed templates add https://github.com/user/repo/blob/main/spec.tree --name myspec
+    seed templates add https://github.com/user/repo/blob/main/spec.seed --name myspec
     seed templates list
     seed templates use myspec
     seed templates lock myspec
@@ -39,6 +39,7 @@ from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 from .logging import get_logger
+from .spec_formats import TREE_LIKE_SUFFIXES, resolve_directory_spec, versioned_spec_path
 
 log = get_logger("template_registry")
 
@@ -180,6 +181,8 @@ def install_default_templates() -> None:
             except (json.JSONDecodeError, OSError, UnicodeDecodeError) as e:
                 log.warning(f"Error reading source.json for {tpl_name}: {e}")
 
+        _materialize_nested_content_sources(dest_path, template_dir / version)
+
         meta = TemplateMetadata(
             name=tpl_name,
             source="builtin",
@@ -230,6 +233,19 @@ def save_registry(registry: Dict[str, TemplateMetadata]) -> None:
 def _get_template_dir(name: str) -> Path:
     """Get the directory for a specific template."""
     return get_templates_dir() / name
+
+
+def _versioned_spec_candidates(template_dir: Path, version: str) -> list[Path]:
+    """Return possible on-disk spec paths for a version."""
+    return [versioned_spec_path(template_dir, version, suffix=suffix) for suffix in TREE_LIKE_SUFFIXES]
+
+
+def _find_versioned_spec_path(template_dir: Path, version: str) -> Optional[Path]:
+    """Find an existing versioned spec file for a template."""
+    for candidate in _versioned_spec_candidates(template_dir, version):
+        if candidate.exists():
+            return candidate
+    return None
 
 
 def _load_meta(name: str) -> Optional[TemplateMetadata]:
@@ -559,6 +575,8 @@ def update_template(name: str, content_url: Optional[str] = None) -> TemplateMet
     content_dest = template_dir / meta.current_version
 
     fetch_content_to_dir(url, content_dest)
+    spec_path = template_dir / f"{meta.current_version}.tree"
+    _materialize_nested_content_sources(spec_path, content_dest)
 
     # If a new content_url was provided, persist it
     if content_url:
@@ -581,11 +599,105 @@ def _save_source_json(name: str, content_url: str) -> None:
     source_json_path.write_text(json.dumps({"content_url": content_url}, indent=2))
 
 
+_GIT_HOSTS = {
+    "bitbucket.org",
+    "github.com",
+    "gitlab.com",
+    "www.bitbucket.org",
+    "www.github.com",
+    "www.gitlab.com",
+}
+
+_NON_REPO_WEB_SEGMENTS = {
+    "actions",
+    "blob",
+    "commits",
+    "issues",
+    "pull",
+    "pulls",
+    "raw",
+    "releases",
+    "tags",
+    "tree",
+    "wiki",
+}
+
+
+def _looks_like_git_repo_url(content_url: str) -> bool:
+    """Return True when a URL should be fetched via git clone."""
+    candidate = content_url.strip()
+    if candidate.startswith("git+"):
+        candidate = candidate[4:]
+
+    if candidate.startswith(("git@", "git://", "ssh://")):
+        return True
+
+    parsed = urlparse(candidate)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return False
+
+    if parsed.path.endswith(".git"):
+        return True
+
+    if parsed.netloc not in _GIT_HOSTS:
+        return False
+
+    parts = [part for part in parsed.path.split("/") if part]
+    if len(parts) < 2:
+        return False
+    if len(parts) > 2 and parts[2] in _NON_REPO_WEB_SEGMENTS:
+        return False
+
+    return True
+
+
+def _clone_repo_to_dir(repo_url: str, dest_dir: Path) -> Path:
+    """Clone a git repository into dest_dir, stripping its .git metadata."""
+    candidate = repo_url.strip()
+    if candidate.startswith("git+"):
+        candidate = candidate[4:]
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_repo = Path(tmpdir) / "repo"
+        subprocess.run(
+            ["git", "clone", "--depth=1", candidate, str(tmp_repo)],
+            capture_output=True,
+            timeout=300,
+            check=True,
+        )
+
+        if dest_dir.exists():
+            shutil.rmtree(dest_dir)
+        shutil.copytree(
+            str(tmp_repo),
+            str(dest_dir),
+            ignore=shutil.ignore_patterns(".git"),
+        )
+        git_dir = dest_dir / ".git"
+        if git_dir.exists():
+            shutil.rmtree(git_dir)
+        return dest_dir
+
+
+def _materialize_nested_content_sources(spec_path: Path, dest_dir: Path) -> list[Path]:
+    """Fetch per-directory content sources declared inside a spec file."""
+    from .content_sources import materialize_node_content_sources
+    from .parsers import parse_spec
+
+    try:
+        _, nodes = parse_spec(str(spec_path))
+    except Exception as exc:
+        log.warning("Failed to inspect %s for nested content sources: %s", spec_path, exc)
+        return []
+
+    return materialize_node_content_sources(nodes, dest_dir)
+
+
 def fetch_content_to_dir(content_url: str, dest_dir: Path) -> Path:
-    """Fetch content from a local path or GitHub tree URL into dest_dir.
+    """Fetch content from a local path, GitHub tree URL, or git repo into dest_dir.
 
     Args:
-        content_url: Local directory path or GitHub tree URL
+        content_url: Local directory path, GitHub tree URL, or git repository URL
         dest_dir: Destination directory
 
     Returns:
@@ -599,8 +711,17 @@ def fetch_content_to_dir(content_url: str, dest_dir: Path) -> Path:
         shutil.copytree(str(local_path), str(dest_dir))
         return dest_dir
 
-    # Otherwise treat as GitHub URL
-    return fetch_dir_from_github(content_url, dest_dir)
+    parsed = parse_github_url(content_url)
+    if parsed:
+        return fetch_dir_from_github(content_url, dest_dir)
+
+    if _looks_like_git_repo_url(content_url):
+        try:
+            return _clone_repo_to_dir(content_url, dest_dir)
+        except Exception as e:
+            raise RuntimeError(f"Failed to fetch git repository content: {e}") from e
+
+    raise ValueError(f"Unsupported content source: {content_url}")
 
 
 def _get_next_version(template_dir: Path) -> str:
@@ -610,7 +731,7 @@ def _get_next_version(template_dir: Path) -> str:
 
     existing = []
     for f in template_dir.iterdir():
-        if f.suffix == ".tree" and f.stem.startswith("v"):
+        if f.suffix.lower() in TREE_LIKE_SUFFIXES and f.stem.startswith("v"):
             match = re.match(r"v(\d+)", f.stem)
             if match:
                 existing.append(int(match.group(1)))
@@ -656,16 +777,16 @@ def add_template(
     # Sanitize name
     name = re.sub(r'[^\w\-]', '_', name)
 
-    # If URL points to a directory (tree), fetch it and look for spec.tree + source.json
+    # If URL points to a directory (tree), fetch it and look for spec.seed/spec.tree + source.json
     if parsed["type"] == "tree":
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir_path = Path(tmpdir) / "fetched"
             fetch_dir_from_github(source, tmpdir_path)
 
-            # Look for spec.tree inside
-            spec_file = tmpdir_path / "spec.tree"
-            if not spec_file.exists():
-                raise ValueError(f"No spec.tree found in directory at {source}")
+            # Look for spec.seed or spec.tree inside
+            spec_file = resolve_directory_spec(tmpdir_path)
+            if spec_file is None:
+                raise ValueError(f"No spec.seed or spec.tree found in directory at {source}")
 
             # Delegate to add_local_template with the fetched directory
             return add_local_template(str(tmpdir_path), name, version=version, content_url=content_url)
@@ -684,7 +805,8 @@ def add_template(
         version = f"v{version}"
 
     # Fetch the spec file
-    version_filename = f"{version}.tree"
+    spec_suffix = ".seed" if parsed.get("path", "").endswith(".seed") else ".tree"
+    version_filename = f"{version}{spec_suffix}"
     fetched_path, _ = fetch_from_github(source, template_dir, version_filename)
 
     # Fetch content from content_url if provided
@@ -696,6 +818,8 @@ def add_template(
         except Exception as e:
             log.warning(f"Failed to fetch content from {content_url}: {e}")
             log.warning("Installing structure-only (empty files)")
+
+    _materialize_nested_content_sources(fetched_path, template_dir / version)
 
     # Create or update metadata
     if existing_meta:
@@ -739,7 +863,7 @@ def add_local_template(
     """Add a template from a local spec file or directory.
 
     Args:
-        spec_path: Path to the local spec file (.tree) or directory containing spec.tree
+        spec_path: Path to the local spec file (.tree/.seed) or directory containing spec.seed/spec.tree
         name: Name for the template
         version: Optional version name (defaults to auto-increment)
         content_dir: Optional path to directory with file contents to copy
@@ -750,16 +874,17 @@ def add_local_template(
     """
     spec_file = Path(spec_path)
 
-    # If spec_path is a directory, look for spec.tree and files/ inside
+    # If spec_path is a directory, look for spec.seed/spec.tree and files/ inside
     source_json_data = None
     config_file: Optional[Path] = None
     if spec_file.is_dir():
         source_dir = spec_file
-        spec_file = source_dir / "spec.tree"
-        if not spec_file.exists():
+        resolved_spec = resolve_directory_spec(source_dir)
+        if resolved_spec is None:
             raise FileNotFoundError(
-                f"No spec.tree found in directory: {spec_path}"
+                f"No spec.seed or spec.tree found in directory: {spec_path}"
             )
+        spec_file = resolved_spec
         # Auto-detect files/ subdirectory as content_dir
         files_dir = source_dir / "files"
         if content_dir is None and files_dir.exists() and files_dir.is_dir():
@@ -797,7 +922,8 @@ def add_local_template(
         version = f"v{version}"
 
     # Copy the spec file
-    dest_path = template_dir / f"{version}.tree"
+    spec_suffix = spec_file.suffix.lower() if spec_file.suffix.lower() in TREE_LIKE_SUFFIXES else ".tree"
+    dest_path = template_dir / f"{version}{spec_suffix}"
     shutil.copy2(spec_file, dest_path)
 
     # Persist template config for this version (if provided by source template)
@@ -827,6 +953,8 @@ def add_local_template(
         except Exception as e:
             log.warning(f"Failed to fetch content from {content_url}: {e}")
             log.warning("Installing structure-only (empty files)")
+
+    _materialize_nested_content_sources(spec_file, template_dir / version)
 
     # Create or update metadata
     if existing_meta:
@@ -931,7 +1059,7 @@ def get_template_spec_path(name: str, version: Optional[str] = None) -> Optional
         version: Optional version (defaults to current_version)
 
     Returns:
-        Path to the .tree file or None if not found
+        Path to the stored spec file or None if not found
     """
     meta = get_template(name)
     if not meta:
@@ -942,10 +1070,7 @@ def get_template_spec_path(name: str, version: Optional[str] = None) -> Optional
     elif not version.startswith("v"):
         version = f"v{version}"
 
-    spec_path = _get_template_dir(name) / f"{version}.tree"
-    if spec_path.exists():
-        return spec_path
-    return None
+    return _find_versioned_spec_path(_get_template_dir(name), version)
 
 
 def get_template_content_dir(name: str, version: Optional[str] = None) -> Optional[Path]:
@@ -1019,8 +1144,8 @@ def list_versions(name: str) -> List[Tuple[str, Path]]:
     versions = []
 
     for version in meta.versions:
-        path = template_dir / f"{version}.tree"
-        if path.exists():
+        path = _find_versioned_spec_path(template_dir, version)
+        if path:
             versions.append((version, path))
 
     # Sort by version number
@@ -1075,7 +1200,8 @@ def add_version(
         version_name = f"v{version_name}"
 
     # Copy the spec file
-    dest_path = template_dir / f"{version_name}.tree"
+    spec_suffix = spec_file.suffix.lower() if spec_file.suffix.lower() in TREE_LIKE_SUFFIXES else ".tree"
+    dest_path = template_dir / f"{version_name}{spec_suffix}"
     shutil.copy2(spec_file, dest_path)
 
     # Copy content directory if provided

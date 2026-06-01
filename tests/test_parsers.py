@@ -41,6 +41,18 @@ def test_parse_comment_and_annotation():
     assert n.annotation == "manual"
 
 
+def test_parse_seed_inline_metadata():
+    text = "vendor/ !service +remote +template -> https://github.com/acme/repo.git (@manual)"
+    nodes = parse_tree_text(text)
+    n = nodes[0]
+    assert n.annotation == "manual"
+    assert n.metadata == {
+        "kind": "service",
+        "tags": ["remote", "template"],
+        "url": "https://github.com/acme/repo.git",
+    }
+
+
 def test_parse_tree_skips_unicode_guides_and_preserves_at_prefixed_dirs():
     text = """
     .
@@ -93,6 +105,25 @@ def test_parse_structured_yaml():
     assert nodes[1].annotation == "manual"
 
 
+def test_parse_structured_metadata_fields():
+    text = """
+    entries:
+      - path: vendor/
+        type: dir
+        kind: service
+        tags:
+          - remote
+          - template
+        url: https://github.com/acme/repo.git
+    """
+    _, nodes = parse_any("spec.seed", text)
+    assert nodes[0].metadata == {
+        "kind": "service",
+        "tags": ["remote", "template"],
+        "url": "https://github.com/acme/repo.git",
+    }
+
+
 def test_parse_templating():
     text = "{{name}}/file.txt"
     _, nodes = parse_any("spec.tree", text, vars={"name": "demo"})
@@ -108,6 +139,16 @@ def test_parse_spec_text_file(tmp_path):
     assert len(nodes) >= 1
     # Should have the file, may or may not have explicit dir
     assert any(n.relpath.as_posix() == "a/file.txt" and not n.is_dir for n in nodes)
+
+
+def test_parse_spec_seed_file(tmp_path):
+    from seed_cli.parsers import parse_spec
+
+    spec = tmp_path / "spec.seed"
+    spec.write_text("vendor/ !service -> https://github.com/acme/repo.git")
+    _, nodes = parse_spec(str(spec), base=tmp_path)
+    assert nodes[0].metadata["kind"] == "service"
+    assert nodes[0].metadata["url"] == "https://github.com/acme/repo.git"
 
 
 def test_parse_spec_image_file_requires_ocr(tmp_path):

@@ -28,6 +28,8 @@ def export_json_spec(nodes: List[Node], out: Path) -> None:
             "annotation": n.annotation,
             "comment": n.comment,
         })
+        if n.metadata:
+            entries[-1]["metadata"] = n.metadata
     out.write_text(json.dumps({"entries": entries}, indent=2), encoding="utf-8")
 
 

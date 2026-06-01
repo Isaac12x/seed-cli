@@ -5,16 +5,45 @@ All notable changes to this project are documented in this file.
 ## [Unreleased]
 
 ### Added
+- Added a Click-based CLI command tree with `-h/--help`, built-in shell completion support, and a singular `seed template ...` alias for `seed templates ...`.
+- Added `seed templates use <name> <folder>` positional folder support for single-placeholder templates.
+
+### Changed
+- Grouped Click command help into workflow-oriented sections for top-level, template, specs, lock, and utility commands, with `seed template` shown as a `seed templates` alias instead of a duplicate row.
+- Made `seed templates list` discover visible project-local templates from `.seed/templates/project/` and show them before global registry templates.
+- Made `seed templates use` resolve visible project-local templates before falling back to the global template registry.
+- Added colorized terminal output for plans, maintenance actions, summaries, and list-style reports when color is supported or forced.
+
+### Fixed
+- Captured all project-template subtrees from `FILESTRUCTURE.seed`-style specs into the project `.seed/templates/project/` scope, including duplicate `RUN_ID` subtemplates disambiguated as names such as `project_run.seed` and `agent_run.seed`.
+- Made project-template registration infer placeholder templates from any `<var>` in spec paths, including path-line specs, placeholder filenames, and templates with multiple placeholders.
+- Made `seed create` substitute all placeholder values in selected templates so nested placeholders such as `<name>` are not left in created paths.
+- Made `seed templates use` render `<var>` paths from template variables before applying, so the target folder is created instead of a literal placeholder path.
+
+### Tests
+- Added CLI regression coverage for project-template listing order, project-template discovery from `templates use`, and positional folder use with registry templates.
+
+## [1.0.9] - 2026-05-14
+
+### Added
 - Added `seed register <spec>` in `src/seed_cli/cli.py` to:
   - mirror `.tree` specs into `.seed/templates/`
   - extract nested project templates into `.seed/templates/project/`
   - remove stale literal placeholder paths such as `<name>/` left by older apply runs
+- Added first-class `.seed` spec support across parsing, CLI flows, template registration, and template lookup.
+- Added inline `.seed` metadata markers:
+  - `!kind`
+  - `+tag`
+  - `-> URL`
 
 ### Changed
 - Refactored project-template registration in `src/seed_cli/project_templates.py`:
   - introduced explicit registration result/cleanup helpers
   - moved stale placeholder cleanup into the shared registration flow
   - mirrors any `.tree` spec, even when it has no template subtree to extract
+- Extended spec parsing and export to preserve inline node metadata, and wired directory URL metadata into existing remote content source handling.
+- Updated `README.md` and the GitHub Pages docs to document `.seed` specs, inline marker syntax, `specs watch`, `.seed` templates, and expanded content-source support.
+- Replaced the test-only GitHub Actions workflow with tag-gated build and PyPI publish jobs using Trusted Publishing.
 - Updated `apply()` in `src/seed_cli/apply.py`:
   - runs the shared registration flow for spec inputs after snapshot creation and under the apply lock
   - removes previously materialized literal template subtrees before executing the pruned plan
@@ -24,12 +53,18 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 - Fixed a project-template recovery gap where rerunning `seed apply FILENAME.tree` on older worktrees could leave literal `<NAME>` directories in place instead of converting them into `.seed` support files.
+- Removed duplicate default-template force-includes from the wheel build so release artifacts do not contain repeated zip entries.
+- Excluded local coverage and code-index artifacts from source distributions.
 
 ### Tests
 - Added coverage for explicit registration and stale template cleanup in:
   - `tests/test_apply.py`
   - `tests/test_cli.py`
   - `tests/test_project_templates.py`
+- Added coverage for `.seed` parsing, content-source metadata, and template registry `.seed` resolution in:
+  - `tests/test_parsers.py`
+  - `tests/test_content_sources.py`
+  - `tests/test_template_registry.py`
 
 ## [1.0.8] - 2026-04-06
 

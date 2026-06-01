@@ -40,3 +40,23 @@ def test_invalid_annotation():
 def test_invalid_comment():
     with pytest.raises(SchemaError):
         validate_document({"entries": [{"path": "x", "comment": 123}]})
+
+
+def test_valid_metadata_fields():
+    validate_document({
+        "entries": [
+            {
+                "path": "vendor/",
+                "type": "dir",
+                "kind": "service",
+                "url": "https://github.com/acme/repo.git",
+                "tags": ["remote", "template"],
+                "metadata": {"owner": "platform"},
+            }
+        ]
+    })
+
+
+def test_invalid_tags():
+    with pytest.raises(SchemaError):
+        validate_document({"entries": [{"path": "x", "tags": "remote"}]})

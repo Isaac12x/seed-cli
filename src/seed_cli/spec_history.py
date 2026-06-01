@@ -15,10 +15,11 @@ Structure:
 """
 
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 import fnmatch
 import re
 import shutil
+import time
 from datetime import datetime
 
 from .capture import capture_nodes, to_tree_text, DEFAULT_IGNORE
@@ -215,3 +216,41 @@ def diff_spec_versions(base: Path, v1: int, v2: int) -> dict:
         "removed": sorted(paths1 - paths2),
         "unchanged": sorted(paths1 & paths2),
     }
+
+
+def watch_specs(
+    base: Path,
+    *,
+    interval: float = 1.0,
+    ignore: Optional[List[str]] = None,
+    callback: Optional[Callable[[str, str], None]] = None,
+) -> None:
+    """Watch filesystem state and capture new spec versions on change."""
+    base = base.resolve()
+
+    def notify(msg_type: str, message: str) -> None:
+        if callback:
+            callback(msg_type, message)
+        else:
+            print(f"[{msg_type}] {message}")
+
+    initial = capture_spec(base, ignore=ignore)
+    specs_dir = base / SPECS_DIR
+
+    if initial is not None:
+        version, path = initial
+        notify("captured", f"Captured baseline v{version}: {path.relative_to(base)}")
+
+    notify("info", f"Watching spec history in {specs_dir.relative_to(base)}")
+    notify("info", f"Polling every {interval}s")
+    notify("info", "New filesystem changes will be captured automatically (Ctrl+C to stop)")
+
+    try:
+        while True:
+            result = capture_spec(base, ignore=ignore)
+            if result is not None:
+                version, path = result
+                notify("captured", f"Captured v{version}: {path.relative_to(base)}")
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        notify("info", "Spec watch stopped")
