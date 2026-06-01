@@ -108,6 +108,32 @@ def test_cli_no_command(tmp_path):
     assert "Plan & Apply:" in out
 
 
+def test_cli_no_command_applies_single_seed_spec_and_moves_files(tmp_path):
+    spec = tmp_path / "Project.seed"
+    spec.write_text("src/app.py\n", encoding="utf-8")
+    (tmp_path / "app.py").write_text("print('hello')\n", encoding="utf-8")
+
+    code, out, err = run([], tmp_path)
+
+    assert code == 0
+    assert "Auto-applying spec: Project.seed" in out
+    assert not (tmp_path / "app.py").exists()
+    assert (
+        (tmp_path / "src" / "app.py").read_text(encoding="utf-8")
+        == "print('hello')\n"
+    )
+
+
+def test_cli_no_command_errors_when_multiple_default_specs(tmp_path):
+    (tmp_path / "a.tree").write_text("a.txt", encoding="utf-8")
+    (tmp_path / "b.seed").write_text("b.txt", encoding="utf-8")
+
+    code, out, err = run([], tmp_path)
+
+    assert code == 1
+    assert "multiple default specs found" in out
+
+
 def test_cli_version(tmp_path):
     code, out, err = run(["--version"], tmp_path)
     assert code == 0
