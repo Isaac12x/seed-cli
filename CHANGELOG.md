@@ -12,6 +12,7 @@ All notable changes to this project are documented in this file.
 - Grouped Click command help into workflow-oriented sections for top-level, template, specs, lock, and utility commands, with `seed template` shown as a `seed templates` alias instead of a duplicate row.
 - Made `seed templates list` discover visible project-local templates from `.seed/templates/project/` and show them before global registry templates.
 - Made `seed templates use` resolve visible project-local templates before falling back to the global template registry.
+- Added colorized terminal output for plans, maintenance actions, summaries, and list-style reports when color is supported or forced.
 
 ### Fixed
 - Captured all project-template subtrees from `FILESTRUCTURE.seed`-style specs into the project `.seed/templates/project/` scope, including duplicate `RUN_ID` subtemplates disambiguated as names such as `project_run.seed` and `agent_run.seed`.

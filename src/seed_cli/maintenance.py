@@ -82,16 +82,28 @@ class MaintenanceStep:
     env: Dict[str, str] = field(default_factory=dict)
     shell: bool = False
 
-    def display(self) -> str:
+    def display(self, *, color: bool = False) -> str:
+        from seed_cli.ui import style_text
+
         if self.op == "check_path":
-            return f"CHECK    {self.target}: {self.path} ({self.reason})"
+            op = style_text("CHECK   ", "bold blue", color=color)
+            target = style_text(self.target, "cyan", color=color)
+            reason = style_text(f" ({self.reason})", "dim", color=color)
+            return f"{op} {target}: {self.path}{reason}"
 
         if self.shell and self.command:
             cmd = self.command
         else:
             cmd = shlex.join(self.argv or [])
-        cwd = f" [cwd={self.cwd}]" if self.cwd else ""
-        return f"RUN      {self.target}: {cmd}{cwd} ({self.reason})"
+        op = style_text("RUN     ", "bold green", color=color)
+        target = style_text(self.target, "cyan", color=color)
+        cwd = (
+            style_text(f" [cwd={self.cwd}]", "dim", color=color)
+            if self.cwd
+            else ""
+        )
+        reason = style_text(f" ({self.reason})", "dim", color=color)
+        return f"{op} {target}: {cmd}{cwd}{reason}"
 
 
 @dataclass
@@ -108,17 +120,21 @@ class MaintenancePlan:
     def commands(self) -> int:
         return sum(1 for step in self.steps if step.op == "run")
 
-    def to_text(self) -> str:
+    def to_text(self, *, color: bool = False) -> str:
+        from seed_cli.ui import style_text
+
         lines = [
-            (
+            style_text(
                 f"Maintenance plan: {len(self.targets)} targets, "
-                f"{self.checks} checks, {self.commands} commands"
+                f"{self.checks} checks, {self.commands} commands",
+                "bold cyan",
+                color=color,
             ),
             "",
-            "Actions:",
+            style_text("Actions:", "bold", color=color),
         ]
         for step in self.steps:
-            lines.append(step.display())
+            lines.append(step.display(color=color))
         return "\n".join(lines)
 
 

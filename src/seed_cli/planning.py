@@ -67,20 +67,25 @@ class PlanResult:
     delete: int
     delete_skipped: int
 
-    def to_text(self, show_skip: bool = True) -> str:
-        from .ui import format_step
+    def to_text(self, show_skip: bool = True, *, color: bool = False) -> str:
+        from .ui import format_step, style_text
 
         lines: List[str] = []
-        lines.append(
+        summary = (
             f"Plan: {self.add} to add, {self.change} to change, {self.delete} to delete"
-            + (f" ({self.delete_skipped} deletions skipped)" if self.delete_skipped else "")
+            + (
+                f" ({self.delete_skipped} deletions skipped)"
+                if self.delete_skipped
+                else ""
+            )
         )
+        lines.append(style_text(summary, "bold cyan", color=color))
         lines.append("")
-        lines.append("Actions:")
+        lines.append(style_text("Actions:", "bold", color=color))
         for s in self.steps:
             if not show_skip and s.op == "skip":
                 continue
-            lines.append(format_step(s))
+            lines.append(format_step(s, color=color))
         return "\n".join(lines)
 
     def to_json(self) -> dict:

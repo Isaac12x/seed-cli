@@ -1,4 +1,12 @@
-from seed_cli.ui import render_summary, render_list, render_kv, Summary, format_step
+from seed_cli.planning import PlanResult, PlanStep
+from seed_cli.ui import (
+    render_summary,
+    render_list,
+    render_kv,
+    Summary,
+    format_step,
+    should_color,
+)
 
 
 # Helper class to create step-like objects for testing format_step
@@ -177,9 +185,43 @@ def test_render_kv_special_characters():
     assert "*.txt" in out
 
 
+def test_render_plain_fallback_colorized(monkeypatch):
+    """Test non-Rich renderers can still emit ANSI color."""
+    import seed_cli.ui as ui_module
+
+    monkeypatch.setattr(ui_module, "_RICH", False)
+
+    summary = render_summary(Summary(created=1), color=True)
+    listing = render_list("Files", ["a.txt"], color=True)
+    kv = render_kv("Config", {"port": "8080"}, color=True)
+
+    assert "\x1b[" in summary
+    assert "\x1b[" in listing
+    assert "\x1b[" in kv
+    assert "Created" in summary
+    assert "a.txt" in listing
+    assert "port" in kv
+
+
+def test_should_color_honors_environment(monkeypatch):
+    """Test terminal color detection supports standard environment overrides."""
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.delenv("CLICOLOR", raising=False)
+    monkeypatch.setenv("TERM", "dumb")
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    assert should_color() is True
+
+    monkeypatch.setenv("NO_COLOR", "1")
+    assert should_color() is False
+
+
 def test_format_step_long_path():
     """Test format_step with long path."""
-    step = MockStep("create", "very/long/nested/path/to/some/file.txt", reason="missing")
+    step = MockStep(
+        "create",
+        "very/long/nested/path/to/some/file.txt",
+        reason="missing",
+    )
     result = format_step(step)
     assert "very/long/nested/path/to/some/file.txt" in result
 
@@ -189,6 +231,30 @@ def test_format_step_special_chars_in_path():
     step = MockStep("create", "file-with_special.chars.txt", reason="missing")
     result = format_step(step)
     assert "file-with_special.chars.txt" in result
+
+
+def test_format_step_colorized():
+    """Test format_step can colorize operation and reason text."""
+    step = MockStep("create", "new_file.py", reason="missing", optional=True)
+    result = format_step(step, color=True)
+    assert "\x1b[" in result
+    assert "CREATE" in result
+    assert "new_file.py" in result
+
+
+def test_plan_to_text_colorized():
+    """Test plan text can colorize headings and steps."""
+    plan = PlanResult(
+        steps=[PlanStep("create", "new_file.py", "missing")],
+        add=1,
+        change=0,
+        delete=0,
+        delete_skipped=0,
+    )
+    result = plan.to_text(color=True)
+    assert "\x1b[" in result
+    assert "Plan:" in result
+    assert "CREATE" in result
 
 
 # -----------------------------------------------------------------------------

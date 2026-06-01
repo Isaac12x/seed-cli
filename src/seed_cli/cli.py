@@ -12,7 +12,7 @@ import click
 
 from seed_cli import __version__
 from seed_cli.logging import setup_logging, get_logger
-from seed_cli.ui import Summary, render_summary, render_list
+from seed_cli.ui import Summary, render_summary, render_list, should_color
 from seed_cli.parsers import read_input, parse_any
 from seed_cli.includes import resolve_includes
 from seed_cli.templating import apply_vars
@@ -685,6 +685,7 @@ def _run(args) -> int:
 
     base = Path(getattr(args, "base", ".")).resolve()
     vars = parse_vars(getattr(args, "vars", []))
+    color = should_color()
 
     plugins = load_plugins()
     context = {
@@ -726,7 +727,7 @@ def _run(args) -> int:
                 return 0
 
             show_skip = not getattr(args, "no_skip", False)
-            print(plan.to_text(show_skip=show_skip))
+            print(plan.to_text(show_skip=show_skip, color=color))
             return 0
         except Exception as e:
             log.error(f"Error planning: {e}")
@@ -783,7 +784,7 @@ def _run(args) -> int:
             spec_version = result.pop("spec_version", None)
             spec_path = result.pop("spec_path", None)
             summary = Summary(**result)
-            print(render_summary(summary))
+            print(render_summary(summary, color=color))
             if spec_version:
                 print(f"\nSpec captured: v{spec_version} ({spec_path})")
             if snapshot_id:
@@ -824,11 +825,11 @@ def _run(args) -> int:
             plan = build_maintenance_plan(args.manifest)
             if not args.execute:
                 print("DRY RUN - No maintenance commands will be executed\n")
-                print(plan.to_text())
+                print(plan.to_text(color=color))
                 return 0
 
             result = execute_maintenance_plan(plan, dry_run=False)
-            print(plan.to_text())
+            print(plan.to_text(color=color))
             print()
             print("Maintenance summary:")
             print(f"Checked: {result['checked']}")
@@ -846,10 +847,10 @@ def _run(args) -> int:
     if args.cmd == "diff":
         _, nodes = parse_spec_file(args.spec, vars, base, plugins, context)
         res = diff(nodes, base, ignore=args.ignore, skip_sublevels=args.no_sublevels)
-        print(render_list("Missing", res.missing))
-        print(render_list("Extra", res.extra))
-        print(render_list("Type Mismatch", res.type_mismatch))
-        print(render_list("Drift", res.drift))
+        print(render_list("Missing", res.missing, color=color))
+        print(render_list("Extra", res.extra, color=color))
+        print(render_list("Type Mismatch", res.type_mismatch, color=color))
+        print(render_list("Drift", res.drift, color=color))
         return 0 if res.is_clean() else 1
 
     # ---------------- MATCH ----------------
@@ -875,7 +876,7 @@ def _run(args) -> int:
                     target_mode=args.target_mode,
                 )
                 print("DRY RUN - No changes will be made\n")
-                print(plan.to_text())
+                print(plan.to_text(color=color))
                 return 0
             else:
                 result = do_match(
@@ -897,7 +898,7 @@ def _run(args) -> int:
                 spec_version = result.pop("spec_version", None)
                 spec_path = result.pop("spec_path", None)
                 summary = Summary(**result)
-                print(render_summary(summary))
+                print(render_summary(summary, color=color))
                 if spec_version:
                     print(f"\nSpec captured: v{spec_version} ({spec_path})")
                 if snapshot_id:
@@ -1105,7 +1106,7 @@ def _run(args) -> int:
         _, nodes = parse_spec_file(args.spec, vars, base, plugins, context)
         issues = doctor(nodes, base, fix=args.fix)
         if issues:
-            print(render_list("Issues", issues))
+            print(render_list("Issues", issues, color=color))
             return 1
         print("Spec is healthy.")
         return 0
@@ -1287,7 +1288,7 @@ def _run(args) -> int:
                     result = switch_version(base, version, dry_run=True)
                     plan = result["plan"]
                     print(f"DRY RUN - Preview {action} to {result['version']}\n")
-                    print(plan.to_text())
+                    print(plan.to_text(color=color))
                 else:
                     result = switch_version(base, version, dangerous=True)
                     print(f"Switched to version: {version}")
@@ -1297,7 +1298,7 @@ def _run(args) -> int:
                         deleted=result.get("deleted", 0),
                         skipped=result.get("skipped", 0),
                     )
-                    print(render_summary(summary))
+                    print(render_summary(summary, color=color))
                 return 0
             except FileNotFoundError as e:
                 print(f"Error: {e}")
@@ -1619,7 +1620,7 @@ def _run(args) -> int:
                     p.after_plan(plan, local_context)
 
                 # Show plan
-                print(plan.to_text())
+                print(plan.to_text(color=color))
                 if tasks:
                     if unsafe:
                         print(f"\nTemplate tasks: {len(tasks)} (will run after apply)")
@@ -1688,7 +1689,7 @@ def _run(args) -> int:
                 spec_version = result.pop("spec_version", None)
                 result_spec_path = result.pop("spec_path", None)
                 summary = Summary(**result)
-                print(render_summary(summary))
+                print(render_summary(summary, color=color))
                 if spec_version:
                     print(f"\nSpec captured: v{spec_version} ({result_spec_path})")
                 if snapshot_id:
