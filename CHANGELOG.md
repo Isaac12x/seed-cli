@@ -21,9 +21,11 @@ All notable changes to this project are documented in this file.
 - Made project-template registration infer placeholder templates from any `<var>` in spec paths, including path-line specs, placeholder filenames, and templates with multiple placeholders.
 - Made `seed create` substitute all placeholder values in selected templates so nested placeholders such as `<name>` are not left in created paths.
 - Made `seed templates use` render `<var>` paths from template variables before applying, so the target folder is created instead of a literal placeholder path.
+- Made `seed template use <name> <value>` infer the variable from a matching project-template name, including literal roots such as `person_id/`, and accept `name=value` shorthand for visible project templates.
 
 ### Tests
 - Added CLI regression coverage for project-template listing order, project-template discovery from `templates use`, and positional folder use with registry templates.
+- Added CLI regression coverage for project-template name inference and `name=value` shorthand.
 
 ## [1.0.9] - 2026-05-14
 

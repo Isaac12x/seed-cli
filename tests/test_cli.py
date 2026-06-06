@@ -529,6 +529,46 @@ def test_cli_templates_use_discovers_project_template_and_uses_folder(tmp_path):
     assert (project_root / "users" / "api" / "route.ts").exists()
 
 
+def test_cli_template_use_project_template_uses_name_for_literal_root(tmp_path):
+    project_root = tmp_path / "repo"
+    project_root.mkdir()
+    (project_root / ".git").mkdir()
+    template_dir = project_root / ".seed" / "templates" / "project"
+    template_dir.mkdir(parents=True)
+    (template_dir / "person_id.tree").write_text(
+        ".\n"
+        "└── person_id/\n"
+        "    └── api/\n"
+        "        └── route.ts\n"
+    )
+
+    code, out, err = run(["template", "use", "person_id", "12312123"], project_root)
+
+    assert code == 0
+    assert (project_root / "12312123" / "api" / "route.ts").exists()
+    assert not (project_root / "person_id").exists()
+
+
+def test_cli_template_use_project_template_accepts_name_value_shorthand(tmp_path):
+    project_root = tmp_path / "repo"
+    project_root.mkdir()
+    (project_root / ".git").mkdir()
+    template_dir = project_root / ".seed" / "templates" / "project"
+    template_dir.mkdir(parents=True)
+    (template_dir / "person_id.tree").write_text(
+        ".\n"
+        "└── person_id/\n"
+        "    └── api/\n"
+        "        └── route.ts\n"
+    )
+
+    code, out, err = run(["template", "use", "person_id=12312123"], project_root)
+
+    assert code == 0
+    assert (project_root / "12312123" / "api" / "route.ts").exists()
+    assert not (project_root / "person_id").exists()
+
+
 def test_cli_template_use_registry_template_uses_folder_argument(tmp_path, monkeypatch):
     seed_home = tmp_path / "seed-home"
     monkeypatch.setenv("SEED_HOME", str(seed_home))

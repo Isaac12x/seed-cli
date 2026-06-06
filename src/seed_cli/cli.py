@@ -109,6 +109,21 @@ def _single_template_var_name(spec_path: str, base: Path) -> str | None:
     return None
 
 
+def _template_name_var_name(template_name: str) -> str | None:
+    """Return a variable-safe name derived from a template reference."""
+    path = Path(template_name)
+    if path.suffix.lower() in TREE_LIKE_SUFFIXES:
+        path = strip_tree_like_suffix(path)
+    name = path.name
+    if not name:
+        return None
+    if not (name[0].isalpha() or name[0] == "_"):
+        return None
+    if not all(ch.isalnum() or ch == "_" for ch in name):
+        return None
+    return name
+
+
 def _visible_project_templates(start: Path) -> list[tuple[str, Path]]:
     """Return visible project-local templates as (display name, path), nearest first."""
     directories = list(iter_registered_project_template_dirs(start))
@@ -141,6 +156,7 @@ def _parse_vars_with_folder(
     base: Path,
     vars_values: list[str] | tuple[str, ...] | None,
     folder: str | None,
+    fallback_var_name: str | None = None,
 ) -> dict[str, str]:
     """Parse --vars and optional positional folder into template values."""
     parsed = parse_vars(list(vars_values or []))
@@ -154,9 +170,11 @@ def _parse_vars_with_folder(
 
     implicit_var_name = _single_template_var_name(str(spec_path), base)
     if not implicit_var_name:
+        implicit_var_name = fallback_var_name
+    if not implicit_var_name:
         raise ValueError(
             "Could not infer which template variable to populate. "
-            "Provide varname=value explicitly."
+            "Provide varname=value after the template name."
         )
     parsed.setdefault(implicit_var_name, folder)
     return parsed
@@ -1525,6 +1543,18 @@ def _run(args) -> int:
             unsafe = getattr(args, "unsafe", False)
             overwrite = getattr(args, "overwrite", False)
 
+            vars_values = list(getattr(args, "vars", []))
+            if folder is None and "=" in name and not version:
+                shorthand_name, _ = name.split("=", 1)
+                if shorthand_name:
+                    try:
+                        resolve_registered_project_template(shorthand_name, use_base)
+                    except FileNotFoundError:
+                        pass
+                    else:
+                        vars_values.append(name)
+                        name = shorthand_name
+
             # Get template spec path
             project_spec_path = None
             if not version:
@@ -1540,8 +1570,9 @@ def _run(args) -> int:
                     cli_vars = _parse_vars_with_folder(
                         spec_path=project_spec_path,
                         base=use_base,
-                        vars_values=getattr(args, "vars", []),
+                        vars_values=vars_values,
                         folder=folder,
+                        fallback_var_name=_template_name_var_name(name),
                     )
                     data_vars = load_data_file(data_file)
                     use_vars = resolve_template_vars(
@@ -1601,8 +1632,9 @@ def _run(args) -> int:
                 cli_vars = _parse_vars_with_folder(
                     spec_path=spec_path,
                     base=use_base,
-                    vars_values=getattr(args, "vars", []),
+                    vars_values=vars_values,
                     folder=folder,
+                    fallback_var_name=_template_name_var_name(name),
                 )
                 content_dir = get_template_content_dir(name, version)
                 config_path = get_template_config_path(name, version)

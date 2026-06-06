@@ -25,6 +25,7 @@ Template directories:
     └── ...
 """
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Set, Dict, Tuple
 import fnmatch
@@ -45,6 +46,12 @@ from .project_templates import (
 from .security import safe_target_path, validate_plan_paths
 
 _TEMPLATE_PATTERN = re.compile(r"<[a-zA-Z_][a-zA-Z0-9_]*>")
+
+
+@dataclass(frozen=True)
+class _LiteralTemplateSubtree:
+    relpath: Path
+    nodes: List[Node]
 
 
 def _extract_extras_allowed(nodes: List[Node]) -> Set[str]:
@@ -176,6 +183,82 @@ def _expand_templates(
                 ))
 
     return expanded
+
+
+def _first_literal_template_root(path: Path, names: Set[str]) -> Path | None:
+    for index, part in enumerate(path.parts):
+        if part in names:
+            return Path(*path.parts[: index + 1])
+    return None
+
+
+def _literal_template_subtrees(
+    nodes: List[Node],
+    template_values: Dict[str, str],
+) -> tuple[List[_LiteralTemplateSubtree], Set[str]]:
+    """Infer fallback template subtrees from literal path segments.
+
+    This supports project templates such as ``person_id.tree`` containing a
+    literal ``person_id/`` root when the user supplies ``person_id=123``.
+    """
+    candidate_names = {
+        str(name)
+        for name in template_values
+        if str(name) and "/" not in str(name) and str(name) not in {".", ".."}
+    }
+    if not candidate_names:
+        return [], set()
+
+    roots: list[Path] = []
+    for node in nodes:
+        root = _first_literal_template_root(node.relpath, candidate_names)
+        if root and root not in roots:
+            roots.append(root)
+
+    selected: list[Path] = []
+    for root in sorted(roots, key=lambda path: (len(path.parts), path.as_posix())):
+        if any(
+            root == selected_root or selected_root in root.parents
+            for selected_root in selected
+        ):
+            continue
+        selected.append(root)
+
+    subtrees = [
+        _LiteralTemplateSubtree(
+            relpath=root,
+            nodes=[
+                node
+                for node in nodes
+                if node.relpath == root or root in node.relpath.parents
+            ],
+        )
+        for root in selected
+    ]
+    literal_names = {
+        part
+        for subtree in subtrees
+        for node in subtree.nodes
+        for part in node.relpath.parts
+        if part in candidate_names
+    }
+    return subtrees, literal_names
+
+
+def _render_template_create_path(
+    path: str,
+    template_values: Dict[str, str],
+    literal_template_names: Set[str],
+) -> str | None:
+    rendered = render_template_path(path, template_values)
+    if rendered is None or not literal_template_names:
+        return rendered
+
+    parts = [
+        str(template_values[part]) if part in literal_template_names else part
+        for part in rendered.split("/")
+    ]
+    return "/".join(parts)
 
 
 def _filter_templates_from_extras(extras_allowed: Set[str], templates: Dict[str, List[Node]]) -> Set[str]:
@@ -442,6 +525,12 @@ def create_from_template(
     _, nodes = parse_spec(spec_path, vars=template_values, base=base)
 
     template_subtrees = list(iter_template_subtrees(nodes))
+    literal_template_names: Set[str] = set()
+    if not template_subtrees:
+        template_subtrees, literal_template_names = _literal_template_subtrees(
+            nodes,
+            template_values,
+        )
 
     if not template_subtrees:
         raise ValueError("No template patterns (<varname>/) found in spec")
@@ -479,7 +568,11 @@ def create_from_template(
         if is_template_subtree_path(node.relpath):
             continue
 
-        concrete_path = render_template_path(node_path, template_values)
+        concrete_path = _render_template_create_path(
+            node_path,
+            template_values,
+            literal_template_names,
+        )
         if concrete_path is None or concrete_path in ("", "."):
             continue
         create_path(concrete_path, is_dir=node.is_dir)
@@ -501,7 +594,11 @@ def create_from_template(
             if child.annotation == "extras" or child_path == "..." or child_path.endswith("/..."):
                 continue
 
-            concrete_path = render_template_path(child_path, template_values)
+            concrete_path = _render_template_create_path(
+                child_path,
+                template_values,
+                literal_template_names,
+            )
             if concrete_path is None or concrete_path in ("", "."):
                 continue
 
