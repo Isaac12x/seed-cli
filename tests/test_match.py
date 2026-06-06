@@ -782,7 +782,19 @@ def test_create_from_template_skips_nested_subtemplates_and_keeps_file_placehold
     assert (tmp_path / "1231212" / "conversations" / "session_<id>.jsonl").is_file()
     assert (tmp_path / "1231212" / "services" / "nutrition-coach" / "state").is_dir()
     assert not (tmp_path / "1231212" / "services" / "<service-id>").exists()
+    service_template = (
+        tmp_path
+        / "1231212"
+        / "services"
+        / ".seed"
+        / "templates"
+        / "project"
+        / "service_id.tree"
+    )
+    assert service_template.exists()
+    assert service_template.read_text() == ".\n└── <service-id>/\n    └── state/\n"
     assert "1231212/conversations/session_<id>.jsonl" in result["paths"]
+    assert "1231212/services/.seed/templates/project/service_id.tree" in result["paths"]
 
 
 def test_create_from_template_can_create_nested_subtemplate_when_values_are_supplied(tmp_path):
@@ -803,7 +815,47 @@ def test_create_from_template_can_create_nested_subtemplate_when_values_are_supp
     )
 
     assert (tmp_path / "1231212" / "services" / "custom-coach" / "state").is_dir()
+    assert (
+        tmp_path
+        / "1231212"
+        / "services"
+        / ".seed"
+        / "templates"
+        / "project"
+        / "service_id.tree"
+    ).exists()
     assert "1231212/services/custom-coach/state" in result["paths"]
+
+
+def test_create_from_template_installs_nested_subtemplate_under_literal_root(tmp_path):
+    """Literal root fallback should still install nested project templates."""
+    spec_path = tmp_path / "person_id.tree"
+    spec_path.write_text(
+        ".\n"
+        "└── person_id/\n"
+        "    └── services/\n"
+        "        └── <service-id>/\n"
+        "            └── state/\n"
+    )
+
+    result = create_from_template(
+        str(spec_path),
+        tmp_path,
+        {"person_id": "1231212"},
+    )
+
+    assert (tmp_path / "1231212" / "services").is_dir()
+    assert not (tmp_path / "1231212" / "services" / "<service-id>").exists()
+    assert (
+        tmp_path
+        / "1231212"
+        / "services"
+        / ".seed"
+        / "templates"
+        / "project"
+        / "service_id.tree"
+    ).exists()
+    assert "1231212/services/.seed/templates/project/service_id.tree" in result["paths"]
 
 
 # -----------------------------------------------------------------------------

@@ -393,6 +393,14 @@ def _write_template_subtree(
     destination.write_text(content, encoding="utf-8")
 
 
+def write_project_template_subtree(
+    subtree: TemplateSubtree,
+    destination: Path,
+) -> None:
+    """Write a project-template subtree spec to a concrete destination."""
+    _write_template_subtree(subtree, destination)
+
+
 def _write_project_template_subtrees(
     nodes: Iterable["Node"],
     start: Path,

@@ -589,6 +589,15 @@ def test_cli_template_use_skips_nested_templates_and_keeps_filename_placeholders
     assert (project_root / "12312123" / "conversations" / "session_<id>.jsonl").exists()
     assert (project_root / "12312123" / "services" / "nutrition-coach" / "state").exists()
     assert not (project_root / "12312123" / "services" / "<service-id>").exists()
+    assert (
+        project_root
+        / "12312123"
+        / "services"
+        / ".seed"
+        / "templates"
+        / "project"
+        / "service_id.tree"
+    ).exists()
 
 
 def test_cli_template_use_registry_template_uses_folder_argument(tmp_path, monkeypatch):

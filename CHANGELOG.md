@@ -23,11 +23,13 @@ All notable changes to this project are documented in this file.
 - Made `seed templates use` render `<var>` paths from template variables before applying, so the target folder is created instead of a literal placeholder path.
 - Made `seed template use <name> <value>` infer the variable from a matching project-template name, including literal roots such as `person_id/`, and accept `name=value` shorthand for visible project templates.
 - Made project-template detection recursive for nested directory placeholders while leaving filename placeholders such as `session_<id>.jsonl` as literal paths.
+- Made `seed template use` install nested project templates under the rendered parent scope, such as `person/services/.seed/templates/project/service_id.tree`.
 
 ### Tests
 - Added CLI regression coverage for project-template listing order, project-template discovery from `templates use`, and positional folder use with registry templates.
 - Added CLI regression coverage for project-template name inference and `name=value` shorthand.
 - Added regression coverage for nested project-template use and filename-level placeholder handling.
+- Added regression coverage for nested subtemplate installation during project-template use.
 
 ## [1.0.9] - 2026-05-14
 

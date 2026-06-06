@@ -41,8 +41,10 @@ from .project_templates import (
     path_has_template_variable,
     render_template_path,
     template_path_variable_names,
+    write_project_template_subtree,
 )
 from .security import safe_target_path, validate_plan_paths
+from .spec_formats import preferred_tree_like_suffix
 
 @dataclass(frozen=True)
 class _LiteralTemplateSubtree:
@@ -245,8 +247,10 @@ def _render_template_create_path(
     path: str,
     template_values: Dict[str, str],
     literal_template_names: Set[str],
+    *,
+    strict: bool = False,
 ) -> str | None:
-    rendered = render_template_path(path, template_values, strict=False)
+    rendered = render_template_path(path, template_values, strict=strict)
     if rendered is None or not literal_template_names:
         return rendered
 
@@ -520,13 +524,15 @@ def create_from_template(
     from .parsers import parse_spec
     _, nodes = parse_spec(spec_path, vars=template_values, base=base)
 
-    template_subtrees = list(iter_template_subtrees(nodes))
-    literal_template_names: Set[str] = set()
-    if not template_subtrees:
-        template_subtrees, literal_template_names = _literal_template_subtrees(
-            nodes,
-            template_values,
-        )
+    project_template_subtrees = list(iter_template_subtrees(nodes))
+    literal_template_subtrees, literal_template_names = _literal_template_subtrees(
+        nodes,
+        template_values,
+    )
+    template_subtrees = sorted(
+        [*literal_template_subtrees, *project_template_subtrees],
+        key=lambda subtree: (len(subtree.relpath.parts), subtree.relpath.as_posix()),
+    )
 
     if not template_subtrees:
         raise ValueError("No template patterns (<varname>/) found in spec")
@@ -551,6 +557,11 @@ def create_from_template(
         record_path(path)
 
     subtree_roots = [subtree.relpath for subtree in template_subtrees]
+    project_template_subtree_by_root = {
+        subtree.relpath: subtree for subtree in project_template_subtrees
+    }
+    installed_template_roots: Set[Path] = set()
+    spec_suffix = preferred_tree_like_suffix(spec_path)
 
     def is_template_subtree_path(path: Path) -> bool:
         return any(path == root or root in path.parents for root in subtree_roots)
@@ -564,6 +575,40 @@ def create_from_template(
 
     def is_nested_template_path(path: Path, roots: list[Path]) -> bool:
         return any(path == root or root in path.parents for root in roots)
+
+    def install_nested_project_templates(roots: list[Path]) -> None:
+        for root in roots:
+            if root in installed_template_roots:
+                continue
+            nested_subtree = project_template_subtree_by_root.get(root)
+            if nested_subtree is None:
+                continue
+
+            parent_path = _render_template_create_path(
+                nested_subtree.parent.as_posix(),
+                template_values,
+                literal_template_names,
+                strict=True,
+            )
+            if parent_path is None:
+                continue
+
+            parent_target = (
+                base
+                if parent_path in ("", ".")
+                else safe_target_path(base, parent_path)
+            )
+            destination = (
+                parent_target
+                / ".seed"
+                / "templates"
+                / "project"
+                / f"{nested_subtree.name}{spec_suffix}"
+            )
+            if not dry_run:
+                write_project_template_subtree(nested_subtree, destination)
+            record_path(destination.relative_to(base).as_posix())
+            installed_template_roots.add(root)
 
     for node in nodes:
         node_path = node.relpath.as_posix()
@@ -593,6 +638,7 @@ def create_from_template(
             missing_values.update(missing_for_subtree)
             continue
         nested_roots = nested_template_roots(subtree.relpath)
+        install_nested_project_templates(nested_roots)
 
         for child in subtree.nodes:
             child_path = child.relpath.as_posix()
