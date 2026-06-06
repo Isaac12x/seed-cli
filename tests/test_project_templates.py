@@ -108,12 +108,32 @@ def test_register_spec_project_templates_registers_nested_placeholder_templates(
     )
     assert registered in result.project_templates
     nested_registered = tmp_path / ".seed" / "templates" / "project" / "name.tree"
-    assert nested_registered.exists()
-    assert nested_registered.read_text() == ".\n└── <name>/\n    └── route.ts\n"
-    assert nested_registered in result.project_templates
+    assert not nested_registered.exists()
+    assert nested_registered not in result.project_templates
     assert all(path.exists() for path in result.project_templates)
     assert not (tmp_path / "features" / "<domain>").exists()
     assert not (tmp_path / "features" / "<domain>" / ".seed").exists()
+
+
+def test_register_spec_project_templates_strips_id_suffix_from_template_storage_name(tmp_path):
+    spec_file = tmp_path / "component.tree"
+    spec_file.write_text(
+        ".\n"
+        "└── features/\n"
+        "    └── <person_id>/\n"
+        "        └── profile.json\n"
+    )
+
+    _, nodes = parse_spec(str(spec_file), base=tmp_path)
+    result = register_spec_project_templates(spec_file, nodes, tmp_path, cleanup_materialized=True)
+
+    registered = tmp_path / "features" / ".seed" / "templates" / "project" / "person.tree"
+    old_name = tmp_path / "features" / ".seed" / "templates" / "project" / "person_id.tree"
+    assert registered.exists()
+    assert not old_name.exists()
+    assert registered.read_text() == ".\n└── <person_id>/\n    └── profile.json\n"
+    assert registered in result.project_templates
+    assert resolve_registered_project_template("person_id", tmp_path / "features") == registered
 
 
 def test_register_spec_project_templates_preserves_seed_extension_for_subtrees(tmp_path):
@@ -134,7 +154,7 @@ def test_register_spec_project_templates_preserves_seed_extension_for_subtrees(t
     assert registered in result.project_templates
 
 
-def test_register_filestructure_seed_captures_duplicate_run_subtemplates_at_project_scope(tmp_path):
+def test_register_filestructure_seed_scopes_duplicate_run_subtemplates_to_parent_paths(tmp_path):
     spec_file = tmp_path / "FILESTRUCTURE.seed"
     spec_file.write_text(
         ".\n"
@@ -149,14 +169,20 @@ def test_register_filestructure_seed_captures_duplicate_run_subtemplates_at_proj
     _, nodes = parse_spec(str(spec_file), base=tmp_path)
     result = register_spec_project_templates(spec_file, nodes, tmp_path, cleanup_materialized=True)
 
-    project_template = tmp_path / ".seed" / "templates" / "project" / "project_run.seed"
-    agent_template = tmp_path / ".seed" / "templates" / "project" / "agent_run.seed"
+    project_template = tmp_path / "project" / ".seed" / "templates" / "project" / "run.seed"
+    agent_template = tmp_path / "agent" / ".seed" / "templates" / "project" / "run.seed"
+    root_project_template = tmp_path / ".seed" / "templates" / "project" / "project_run.seed"
+    root_agent_template = tmp_path / ".seed" / "templates" / "project" / "agent_run.seed"
     assert project_template.exists()
     assert project_template.read_text() == ".\n└── RUN_ID/ (some files)\n    └── project.json\n"
     assert agent_template.exists()
     assert agent_template.read_text() == ".\n└── RUN_ID/ (some files)\n    └── agent.json\n"
+    assert not root_project_template.exists()
+    assert not root_agent_template.exists()
     assert project_template in result.project_templates
     assert agent_template in result.project_templates
+    assert resolve_registered_project_template("RUN_ID", tmp_path / "project") == project_template
+    assert resolve_registered_project_template("RUN_ID", tmp_path / "agent") == agent_template
 
 
 def test_register_spec_project_templates_handles_json_specs(tmp_path):

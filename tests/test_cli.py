@@ -455,6 +455,16 @@ def test_cli_create_with_registered_project_template_replaces_multiple_placehold
     assert code == 0
     assert (tmp_path / "features" / "billing" / "invoices" / "route.ts").exists()
     assert not (tmp_path / "features" / "billing" / "<name>").exists()
+    assert (
+        tmp_path
+        / "features"
+        / "billing"
+        / ".seed"
+        / "templates"
+        / "project"
+        / "name.tree"
+    ).exists()
+    assert not (tmp_path / ".seed" / "templates" / "project" / "name.tree").exists()
 
 
 def test_cli_apply_does_not_register_placeholder_filename_template(tmp_path):
@@ -503,6 +513,8 @@ def test_cli_templates_list_shows_project_templates_first(tmp_path, monkeypatch)
     assert code == 0
     assert "Project templates:" in out
     assert "  component" in out
+    assert "Path: .seed/templates/project/component.tree" in out
+    assert str(project_root) not in out
     assert out.index("Project templates:") < out.index("Stored templates:")
 
 
@@ -523,6 +535,25 @@ def test_cli_templates_use_discovers_project_template_and_uses_folder(tmp_path):
 
     assert code == 0
     assert (project_root / "users" / "api" / "route.ts").exists()
+
+
+def test_cli_template_use_project_template_accepts_stripped_id_storage_name(tmp_path):
+    project_root = tmp_path / "repo"
+    project_root.mkdir()
+    (project_root / ".git").mkdir()
+    template_dir = project_root / ".seed" / "templates" / "project"
+    template_dir.mkdir(parents=True)
+    (template_dir / "person.tree").write_text(
+        ".\n"
+        "└── <person_id>/\n"
+        "    └── api/\n"
+        "        └── route.ts\n"
+    )
+
+    code, out, err = run(["template", "use", "person_id", "12312123"], project_root)
+
+    assert code == 0
+    assert (project_root / "12312123" / "api" / "route.ts").exists()
 
 
 def test_cli_template_use_project_template_uses_name_for_literal_root(tmp_path):

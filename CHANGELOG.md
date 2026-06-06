@@ -9,6 +9,8 @@ All notable changes to this project are documented in this file.
 - Added `seed templates use <name> <folder>` positional folder support for single-placeholder templates.
 
 ### Changed
+- Scoped auto-registered subtemplates to the parent path where they are meant to be used instead of also registering broad project-root copies.
+- Made `seed templates list` show project-relative template paths and use Click-backed styling for template list output.
 - Consolidated release automation so `v*` tag pushes build and create or update the GitHub release with distributions, while the PyPI release workflow can publish from release events or manual dispatch using the configured PyPI API token.
 - Grouped Click command help into workflow-oriented sections for top-level, template, specs, lock, and utility commands, with `seed template` shown as a `seed templates` alias instead of a duplicate row.
 - Made `seed templates list` discover visible project-local templates from `.seed/templates/project/` and show them before global registry templates.
@@ -16,8 +18,9 @@ All notable changes to this project are documented in this file.
 - Added colorized terminal output for plans, maintenance actions, summaries, and list-style reports when color is supported or forced.
 
 ### Fixed
+- Stored project templates inferred from `<xxx_id>` and `XXX_ID` placeholders under the stripped `xxx` name while preserving lookup aliases for the old `_id` form.
 - Restored bare `seed` auto-apply behavior in the Click CLI when exactly one `.seed` or `.tree` spec is present.
-- Captured all project-template subtrees from `FILESTRUCTURE.seed`-style specs into the project `.seed/templates/project/` scope, including duplicate `RUN_ID` subtemplates disambiguated as names such as `project_run.seed` and `agent_run.seed`.
+- Captured project-template subtrees from `FILESTRUCTURE.seed`-style specs into the appropriate path-local `.seed/templates/project/` scope, including duplicate `RUN_ID` subtemplates stored as `run.seed` under each parent path.
 - Made project-template registration infer placeholder templates from any `<var>` in spec paths, including path-line specs, placeholder filenames, and templates with multiple placeholders.
 - Made `seed create` substitute all placeholder values in selected templates so nested placeholders such as `<name>` are not left in created paths.
 - Made `seed templates use` render `<var>` paths from template variables before applying, so the target folder is created instead of a literal placeholder path.
@@ -26,6 +29,7 @@ All notable changes to this project are documented in this file.
 - Made `seed template use` install nested project templates under the rendered parent scope, such as `person/services/.seed/templates/project/service_id.tree`.
 
 ### Tests
+- Added regression coverage for scoped subtemplate registration, stripped `_id` template storage names, alias lookup, and relative template list paths.
 - Added CLI regression coverage for project-template listing order, project-template discovery from `templates use`, and positional folder use with registry templates.
 - Added CLI regression coverage for project-template name inference and `name=value` shorthand.
 - Added regression coverage for nested project-template use and filename-level placeholder handling.

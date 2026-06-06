@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -12,7 +13,7 @@ import click
 
 from seed_cli import __version__
 from seed_cli.logging import setup_logging, get_logger
-from seed_cli.ui import Summary, render_summary, render_list, should_color
+from seed_cli.ui import Summary, render_summary, render_list, should_color, style_text
 from seed_cli.parsers import read_input, parse_any
 from seed_cli.includes import resolve_includes
 from seed_cli.templating import apply_vars
@@ -38,6 +39,7 @@ from seed_cli.project_templates import (
     complete_registered_project_template_names,
     complete_project_template_paths,
     iter_registered_project_template_dirs,
+    find_project_root,
     list_registered_project_templates,
     register_spec_project_templates,
     render_template_path,
@@ -149,6 +151,18 @@ def _visible_project_templates(start: Path) -> list[tuple[str, Path]]:
         rows.append((name_path.as_posix(), path))
 
     return rows
+
+
+def _display_relative_path(path: Path, base: Path) -> str:
+    """Return a stable non-absolute path for terminal output."""
+    resolved = path.resolve()
+    roots = [find_project_root(base), base.resolve()]
+    for root in roots:
+        try:
+            return resolved.relative_to(root.resolve()).as_posix()
+        except ValueError:
+            continue
+    return Path(os.path.relpath(resolved, base.resolve())).as_posix()
 
 
 def _parse_vars_with_folder(
@@ -1408,27 +1422,43 @@ def _run(args) -> int:
             project_templates = _visible_project_templates(base)
             templates = list_templates()
             if not project_templates and not templates:
-                print("No templates found.")
-                print("\nUse 'seed templates add <github_url>' to add a template.")
+                click.echo("No templates found.")
+                click.echo("\nUse 'seed templates add <github_url>' to add a template.")
                 return 0
 
             if project_templates:
-                print("Project templates:\n")
+                click.echo(style_text("Project templates:", "bold cyan", color=color))
+                click.echo()
                 for name, path in project_templates:
-                    print(f"  {name}")
-                    print(f"    Path: {path}")
-                print()
+                    click.echo(f"  {style_text(name, 'bold', color=color)}")
+                    rel_path = _display_relative_path(path, base)
+                    click.echo(
+                        f"    {style_text('Path:', 'dim', color=color)} {rel_path}"
+                    )
+                click.echo()
 
             if templates:
-                print("Stored templates:\n")
+                click.echo(style_text("Stored templates:", "bold cyan", color=color))
+                click.echo()
             for tmpl in templates:
-                locked_str = " [LOCKED]" if tmpl.locked else ""
-                print(f"  {tmpl.name}{locked_str}")
-                print(f"    Version: {tmpl.current_version} ({len(tmpl.versions)} total)")
-                print(f"    Source: {tmpl.source}")
+                locked_str = (
+                    style_text(" [LOCKED]", "bold yellow", color=color)
+                    if tmpl.locked
+                    else ""
+                )
+                click.echo(f"  {style_text(tmpl.name, 'bold', color=color)}{locked_str}")
+                click.echo(
+                    f"    {style_text('Version:', 'dim', color=color)} "
+                    f"{tmpl.current_version} ({len(tmpl.versions)} total)"
+                )
+                click.echo(
+                    f"    {style_text('Source:', 'dim', color=color)} {tmpl.source}"
+                )
                 created = datetime.fromtimestamp(tmpl.created_at).strftime("%Y-%m-%d %H:%M")
-                print(f"    Created: {created}")
-                print()
+                click.echo(
+                    f"    {style_text('Created:', 'dim', color=color)} {created}"
+                )
+                click.echo()
             return 0
 
         if action == "add":

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 import shutil
-from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Iterator, List
@@ -136,7 +135,7 @@ def _template_segment_names(text: str) -> list[str]:
 
 
 def _template_filename_part(name: str) -> str:
-    if name.isupper() and name.endswith("_ID"):
+    if name.lower().endswith("_id"):
         name = name[:-3]
     normalized = re.sub(r"[^a-zA-Z0-9]+", "_", name).strip("_").lower()
     return normalized or "template"
@@ -352,37 +351,6 @@ def _render_tree_text(nodes: Iterable["Node"]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _template_scope_prefix(path: Path) -> str | None:
-    for part in path.parts:
-        if part in ("", "."):
-            continue
-        if _template_segment_names(part):
-            return None
-        return _template_filename_part(part)
-    return None
-
-
-def _project_scope_template_names(subtrees: list[TemplateSubtree]) -> list[str]:
-    name_counts = Counter(subtree.name for subtree in subtrees)
-    used: Counter[str] = Counter()
-    names: list[str] = []
-
-    for subtree in subtrees:
-        base_name = subtree.name
-        if name_counts[base_name] > 1:
-            prefix = _template_scope_prefix(subtree.relpath)
-            if prefix:
-                base_name = f"{prefix}_{base_name}"
-
-        name = base_name
-        used[name] += 1
-        if used[name] > 1:
-            name = f"{base_name}_{used[name]}"
-        names.append(name)
-
-    return names
-
-
 def _write_template_subtree(
     subtree: TemplateSubtree,
     destination: Path,
@@ -410,7 +378,6 @@ def _write_project_template_subtrees(
     written: list[Path] = []
     written_set: set[Path] = set()
     subtrees = list(_iter_template_subtrees(nodes))
-    project_scope_names = _project_scope_template_names(subtrees)
 
     def write_once(subtree: TemplateSubtree, destination: Path) -> None:
         resolved = destination.resolve()
@@ -420,19 +387,25 @@ def _write_project_template_subtrees(
         written_set.add(resolved)
         written.append(destination)
 
-    for subtree, project_scope_name in zip(subtrees, project_scope_names):
+    for subtree in subtrees:
         parent_relpath = subtree.parent
-        if not path_has_template_variable(parent_relpath):
-            parent_dir = start.resolve() if parent_relpath == Path(".") else (start.resolve() / parent_relpath)
-            templates_dir = get_local_project_templates_dir(parent_dir, create=True)
-            destination = templates_dir / f"{subtree.name}{spec_suffix}"
-            write_once(subtree, destination)
-            log.debug("Registered project subtree template %s -> %s", subtree.name, destination)
+        if path_has_template_variable(parent_relpath):
+            log.debug(
+                "Deferred project subtree template %s under unresolved parent %s",
+                subtree.name,
+                parent_relpath,
+            )
+            continue
 
-        project_templates_dir = get_registered_project_templates_dir(start, create=True)
-        project_destination = project_templates_dir / f"{project_scope_name}{spec_suffix}"
-        write_once(subtree, project_destination)
-        log.debug("Registered project subtree template %s -> %s", project_scope_name, project_destination)
+        parent_dir = (
+            start.resolve()
+            if parent_relpath == Path(".")
+            else (start.resolve() / parent_relpath)
+        )
+        templates_dir = get_local_project_templates_dir(parent_dir, create=True)
+        destination = templates_dir / f"{subtree.name}{spec_suffix}"
+        write_once(subtree, destination)
+        log.debug("Registered project subtree template %s -> %s", subtree.name, destination)
 
     return written
 
@@ -597,10 +570,23 @@ def list_registered_project_templates(start: Path) -> List[Path]:
 def resolve_registered_project_template(template_name: str, start: Path) -> Path:
     """Resolve a registered project template by name from nearest scope outward."""
     raw = Path(template_name)
-    candidate_names = [raw]
-    if raw.suffix.lower() not in TREE_LIKE_SUFFIXES:
-        for suffix in TREE_LIKE_SUFFIXES:
-            candidate_names.insert(0, raw.with_suffix(suffix))
+
+    raw_aliases = [raw]
+    suffix = raw.suffix if raw.suffix.lower() in TREE_LIKE_SUFFIXES else ""
+    stem = raw.stem if suffix else raw.name
+    normalized_stem = _template_filename_part(stem)
+    if normalized_stem != stem:
+        raw_aliases.append(raw.with_name(f"{normalized_stem}{suffix}"))
+
+    candidate_names: list[Path] = []
+    for alias in raw_aliases:
+        if alias.suffix.lower() in TREE_LIKE_SUFFIXES:
+            names = [alias]
+        else:
+            names = [alias.with_suffix(suffix) for suffix in TREE_LIKE_SUFFIXES]
+        for name in names:
+            if name not in candidate_names:
+                candidate_names.append(name)
 
     for directory in iter_registered_project_template_dirs(start):
         for candidate_name in candidate_names:
