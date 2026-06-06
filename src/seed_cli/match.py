@@ -29,7 +29,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Set, Dict, Tuple
 import fnmatch
-import re
 
 from .parsers import Node
 from .planning import plan as build_plan, PlanResult, PlanStep, DEFAULT_IGNORE, _norm
@@ -41,12 +40,9 @@ from .project_templates import (
     iter_template_subtrees,
     path_has_template_variable,
     render_template_path,
-    template_variable_names,
+    template_path_variable_names,
 )
 from .security import safe_target_path, validate_plan_paths
-
-_TEMPLATE_PATTERN = re.compile(r"<[a-zA-Z_][a-zA-Z0-9_]*>")
-
 
 @dataclass(frozen=True)
 class _LiteralTemplateSubtree:
@@ -250,7 +246,7 @@ def _render_template_create_path(
     template_values: Dict[str, str],
     literal_template_names: Set[str],
 ) -> str | None:
-    rendered = render_template_path(path, template_values)
+    rendered = render_template_path(path, template_values, strict=False)
     if rendered is None or not literal_template_names:
         return rendered
 
@@ -336,7 +332,7 @@ def _filter_nodes_for_planning(nodes: List[Node]) -> List[Node]:
         if n.annotation and n.annotation.startswith("template:"):
             continue
         # Skip paths with unexpanded template variables
-        if _TEMPLATE_PATTERN.search(path):
+        if path_has_template_variable(path):
             continue
         filtered.append(n)
     return filtered
@@ -559,6 +555,16 @@ def create_from_template(
     def is_template_subtree_path(path: Path) -> bool:
         return any(path == root or root in path.parents for root in subtree_roots)
 
+    def nested_template_roots(path: Path) -> list[Path]:
+        return [
+            root
+            for root in subtree_roots
+            if root != path and (path == root.parent or path in root.parents)
+        ]
+
+    def is_nested_template_path(path: Path, roots: list[Path]) -> bool:
+        return any(path == root or root in path.parents for root in roots)
+
     for node in nodes:
         node_path = node.relpath.as_posix()
         if node_path in ("", "."):
@@ -580,18 +586,21 @@ def create_from_template(
     for subtree in template_subtrees:
         missing_for_subtree = [
             name
-            for name in template_variable_names(subtree.nodes)
+            for name in template_path_variable_names(subtree.relpath)
             if name not in template_values
         ]
         if missing_for_subtree:
             missing_values.update(missing_for_subtree)
             continue
+        nested_roots = nested_template_roots(subtree.relpath)
 
         for child in subtree.nodes:
             child_path = child.relpath.as_posix()
             if child_path in ("", "."):
                 continue
             if child.annotation == "extras" or child_path == "..." or child_path.endswith("/..."):
+                continue
+            if is_nested_template_path(child.relpath, nested_roots):
                 continue
 
             concrete_path = _render_template_create_path(

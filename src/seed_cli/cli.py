@@ -43,6 +43,7 @@ from seed_cli.project_templates import (
     render_template_path,
     resolve_registered_project_template,
     resolve_project_template_path,
+    template_root_variable_names,
     template_variable_names,
 )
 from seed_cli.spec_formats import TREE_LIKE_SUFFIXES, strip_tree_like_suffix
@@ -103,7 +104,7 @@ def _single_template_var_name(spec_path: str, base: Path) -> str | None:
     from seed_cli.parsers import parse_spec
 
     _, nodes = parse_spec(spec_path, base=base)
-    names = sorted(template_variable_names(nodes))
+    names = sorted(template_root_variable_names(nodes))
     if len(names) == 1:
         return names[0]
     return None

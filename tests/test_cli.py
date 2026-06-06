@@ -457,18 +457,14 @@ def test_cli_create_with_registered_project_template_replaces_multiple_placehold
     assert not (tmp_path / "features" / "billing" / "<name>").exists()
 
 
-def test_cli_create_with_registered_placeholder_filename_template(tmp_path):
+def test_cli_apply_does_not_register_placeholder_filename_template(tmp_path):
     spec = tmp_path / "spec.tree"
     spec.write_text("features/<name>.ts\n")
 
     code, out, err = run(["apply", "spec.tree"], tmp_path)
     assert code == 0
-    assert (tmp_path / "features" / ".seed" / "templates" / "project" / "name.tree").exists()
-
-    code, out, err = run(["create", "--project", "name", "name=users"], tmp_path / "features")
-
-    assert code == 0
-    assert (tmp_path / "features" / "users.ts").exists()
+    assert (tmp_path / "features" / "<name>.ts").exists()
+    assert not (tmp_path / "features" / ".seed" / "templates" / "project" / "name.tree").exists()
 
 
 def test_cli_create_finds_project_template_without_flag(tmp_path):
@@ -567,6 +563,32 @@ def test_cli_template_use_project_template_accepts_name_value_shorthand(tmp_path
     assert code == 0
     assert (project_root / "12312123" / "api" / "route.ts").exists()
     assert not (project_root / "person_id").exists()
+
+
+def test_cli_template_use_skips_nested_templates_and_keeps_filename_placeholders(tmp_path):
+    project_root = tmp_path / "repo"
+    project_root.mkdir()
+    (project_root / ".git").mkdir()
+    template_dir = project_root / ".seed" / "templates" / "project"
+    template_dir.mkdir(parents=True)
+    (template_dir / "person_id.tree").write_text(
+        ".\n"
+        "└── <person_id>/\n"
+        "    ├── conversations/\n"
+        "    │   └── session_<id>.jsonl\n"
+        "    └── services/\n"
+        "        ├── <service-id>/\n"
+        "        │   └── state/\n"
+        "        └── nutrition-coach/\n"
+        "            └── state/\n"
+    )
+
+    code, out, err = run(["template", "use", "person_id=12312123"], project_root)
+
+    assert code == 0
+    assert (project_root / "12312123" / "conversations" / "session_<id>.jsonl").exists()
+    assert (project_root / "12312123" / "services" / "nutrition-coach" / "state").exists()
+    assert not (project_root / "12312123" / "services" / "<service-id>").exists()
 
 
 def test_cli_template_use_registry_template_uses_folder_argument(tmp_path, monkeypatch):

@@ -73,7 +73,7 @@ def test_register_spec_project_templates_infers_path_line_placeholder_template(t
     assert registered in result.project_templates
 
 
-def test_register_spec_project_templates_infers_placeholder_filename_template(tmp_path):
+def test_register_spec_project_templates_does_not_infer_placeholder_filename_template(tmp_path):
     spec_file = tmp_path / "component.tree"
     spec_file.write_text("features/<name>.ts\n")
 
@@ -81,12 +81,11 @@ def test_register_spec_project_templates_infers_placeholder_filename_template(tm
     result = register_spec_project_templates(spec_file, nodes, tmp_path, cleanup_materialized=True)
 
     registered = tmp_path / "features" / ".seed" / "templates" / "project" / "name.tree"
-    assert registered.exists()
-    assert registered.read_text() == ".\n└── <name>.ts\n"
-    assert registered in result.project_templates
+    assert not registered.exists()
+    assert result.project_templates == []
 
 
-def test_register_spec_project_templates_uses_outermost_placeholder_for_nested_templates(tmp_path):
+def test_register_spec_project_templates_registers_nested_placeholder_templates(tmp_path):
     spec_file = tmp_path / "component.tree"
     spec_file.write_text(
         ".\n"
@@ -108,8 +107,13 @@ def test_register_spec_project_templates_uses_outermost_placeholder_for_nested_t
         "        └── route.ts\n"
     )
     assert registered in result.project_templates
+    nested_registered = tmp_path / ".seed" / "templates" / "project" / "name.tree"
+    assert nested_registered.exists()
+    assert nested_registered.read_text() == ".\n└── <name>/\n    └── route.ts\n"
+    assert nested_registered in result.project_templates
     assert all(path.exists() for path in result.project_templates)
     assert not (tmp_path / "features" / "<domain>").exists()
+    assert not (tmp_path / "features" / "<domain>" / ".seed").exists()
 
 
 def test_register_spec_project_templates_preserves_seed_extension_for_subtrees(tmp_path):
