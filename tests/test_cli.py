@@ -59,6 +59,24 @@ def write_template_registry(seed_home: Path, names: list[str]) -> None:
     (templates_dir / "registry.json").write_text(json.dumps(registry), encoding="utf-8")
 
 
+def write_template_registry_entries(seed_home: Path, entries: dict[str, dict]) -> None:
+    templates_dir = seed_home / "templates"
+    templates_dir.mkdir(parents=True, exist_ok=True)
+    registry = {
+        name: {
+            "name": name,
+            "source": entry.get("source", "test"),
+            "current_version": entry.get("current_version", "v1"),
+            "locked": entry.get("locked", False),
+            "created_at": entry.get("created_at", 0),
+            "versions": entry.get("versions", ["v1"]),
+            "content_url": entry.get("content_url"),
+        }
+        for name, entry in entries.items()
+    }
+    (templates_dir / "registry.json").write_text(json.dumps(registry), encoding="utf-8")
+
+
 def test_cli_plan(tmp_path):
     spec = tmp_path / "spec.tree"
     spec.write_text("a/file.txt")
@@ -516,6 +534,31 @@ def test_cli_templates_list_shows_project_templates_first(tmp_path, monkeypatch)
     assert "Path: .seed/templates/project/component.tree" in out
     assert str(project_root) not in out
     assert out.index("Project templates:") < out.index("Stored templates:")
+
+
+def test_cli_templates_list_shows_local_sources_as_relative_paths(tmp_path, monkeypatch):
+    seed_home = tmp_path / "seed-home"
+    project_root = tmp_path / "repo"
+    project_root.mkdir()
+    (project_root / ".git").mkdir()
+    source = project_root / "templates" / "component.tree"
+    source.parent.mkdir()
+    source.write_text("<name>/\n└── route.ts\n")
+    monkeypatch.setenv("SEED_HOME", str(seed_home))
+    write_template_registry_entries(
+        seed_home,
+        {
+            "component": {
+                "source": f"local:{source}",
+            },
+        },
+    )
+
+    code, out, err = run(["templates", "list"], project_root)
+
+    assert code == 0
+    assert "Source: local:templates/component.tree" in out
+    assert str(project_root) not in out
 
 
 def test_cli_templates_use_discovers_project_template_and_uses_folder(tmp_path):

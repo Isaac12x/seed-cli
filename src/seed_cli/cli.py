@@ -165,6 +165,23 @@ def _display_relative_path(path: Path, base: Path) -> str:
     return Path(os.path.relpath(resolved, base.resolve())).as_posix()
 
 
+def _display_template_source(source: str, base: Path) -> str:
+    """Render local template sources without absolute paths."""
+    local_prefix = "local:"
+    if source.startswith(local_prefix):
+        raw_path = source[len(local_prefix):]
+        path = Path(raw_path).expanduser()
+        if path.is_absolute():
+            return f"{local_prefix}{_display_relative_path(path, base)}"
+        return f"{local_prefix}{Path(raw_path).as_posix()}"
+
+    path = Path(source).expanduser()
+    if path.is_absolute():
+        return _display_relative_path(path, base)
+
+    return source
+
+
 def _parse_vars_with_folder(
     *,
     spec_path: Path,
@@ -1451,8 +1468,9 @@ def _run(args) -> int:
                     f"    {style_text('Version:', 'dim', color=color)} "
                     f"{tmpl.current_version} ({len(tmpl.versions)} total)"
                 )
+                source = _display_template_source(tmpl.source, base)
                 click.echo(
-                    f"    {style_text('Source:', 'dim', color=color)} {tmpl.source}"
+                    f"    {style_text('Source:', 'dim', color=color)} {source}"
                 )
                 created = datetime.fromtimestamp(tmpl.created_at).strftime("%Y-%m-%d %H:%M")
                 click.echo(
