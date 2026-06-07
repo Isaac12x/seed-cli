@@ -203,6 +203,33 @@
             margin: 0;
         }
 
+        .release-note {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px;
+            margin: 24px 0;
+        }
+
+        .release-note h3 {
+            margin-top: 0;
+        }
+
+        .release-note a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        .release-note a:hover {
+            text-decoration: underline;
+        }
+
+        .release-meta {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            margin-bottom: 12px;
+        }
+
         /* Code Blocks */
         .code-block {
             position: relative;
@@ -395,6 +422,15 @@
                     <h4>History & Locks</h4>
                     <p>Snapshots, spec history, structure locking, and state locks keep changes auditable.</p>
                 </div>
+            </div>
+
+            <div class="release-note">
+                <h3>Latest Release: <a href="https://github.com/Isaac12x/seed-cli/releases/tag/v1.0.11">v1.0.11</a></h3>
+                <p class="release-meta">Released June 7, 2026</p>
+                <ul>
+                    <li>Pushing a <code>v*</code> tag builds and attaches Python distributions to the GitHub release.</li>
+                    <li>The PyPI workflow can publish from release events or manual dispatch using the configured API token.</li>
+                </ul>
             </div>
 
             <hr>
