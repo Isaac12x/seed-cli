@@ -4,12 +4,20 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [1.0.11] - 2026-06-07
+
+### Changed
+- Split PyPI publishing into the release/manual-dispatch workflow using the configured PyPI API token, while pushing a `v*` tag builds and attaches distributions to the GitHub release.
+- Updated the package version and website release callout for `v1.0.11`.
+
+## [1.0.10] - 2026-06-01
+
 ### Added
 - Added a Click-based CLI command tree with `-h/--help`, built-in shell completion support, and a singular `seed template ...` alias for `seed templates ...`.
 - Added `seed templates use <name> <folder>` positional folder support for single-placeholder templates.
 
 ### Changed
-- Consolidated release automation so `v*` tag pushes build and create or update the GitHub release with distributions, while the PyPI release workflow can publish from release events or manual dispatch using the configured PyPI API token.
+- Consolidated release automation so `v*` tag pushes build once, create or update the GitHub release with distributions, and publish the same artifacts to PyPI.
 - Grouped Click command help into workflow-oriented sections for top-level, template, specs, lock, and utility commands, with `seed template` shown as a `seed templates` alias instead of a duplicate row.
 - Made `seed templates list` discover visible project-local templates from `.seed/templates/project/` and show them before global registry templates.
 - Made `seed templates use` resolve visible project-local templates before falling back to the global template registry.
