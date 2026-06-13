@@ -59,6 +59,24 @@ def write_template_registry(seed_home: Path, names: list[str]) -> None:
     (templates_dir / "registry.json").write_text(json.dumps(registry), encoding="utf-8")
 
 
+def write_template_registry_entries(seed_home: Path, entries: dict[str, dict]) -> None:
+    templates_dir = seed_home / "templates"
+    templates_dir.mkdir(parents=True, exist_ok=True)
+    registry = {
+        name: {
+            "name": name,
+            "source": entry.get("source", "test"),
+            "current_version": entry.get("current_version", "v1"),
+            "locked": entry.get("locked", False),
+            "created_at": entry.get("created_at", 0),
+            "versions": entry.get("versions", ["v1"]),
+            "content_url": entry.get("content_url"),
+        }
+        for name, entry in entries.items()
+    }
+    (templates_dir / "registry.json").write_text(json.dumps(registry), encoding="utf-8")
+
+
 def test_cli_plan(tmp_path):
     spec = tmp_path / "spec.tree"
     spec.write_text("a/file.txt")
@@ -455,20 +473,26 @@ def test_cli_create_with_registered_project_template_replaces_multiple_placehold
     assert code == 0
     assert (tmp_path / "features" / "billing" / "invoices" / "route.ts").exists()
     assert not (tmp_path / "features" / "billing" / "<name>").exists()
+    assert (
+        tmp_path
+        / "features"
+        / "billing"
+        / ".seed"
+        / "templates"
+        / "project"
+        / "name.tree"
+    ).exists()
+    assert not (tmp_path / ".seed" / "templates" / "project" / "name.tree").exists()
 
 
-def test_cli_create_with_registered_placeholder_filename_template(tmp_path):
+def test_cli_apply_does_not_register_placeholder_filename_template(tmp_path):
     spec = tmp_path / "spec.tree"
     spec.write_text("features/<name>.ts\n")
 
     code, out, err = run(["apply", "spec.tree"], tmp_path)
     assert code == 0
-    assert (tmp_path / "features" / ".seed" / "templates" / "project" / "name.tree").exists()
-
-    code, out, err = run(["create", "--project", "name", "name=users"], tmp_path / "features")
-
-    assert code == 0
-    assert (tmp_path / "features" / "users.ts").exists()
+    assert (tmp_path / "features" / "<name>.ts").exists()
+    assert not (tmp_path / "features" / ".seed" / "templates" / "project" / "name.tree").exists()
 
 
 def test_cli_create_finds_project_template_without_flag(tmp_path):
@@ -507,7 +531,34 @@ def test_cli_templates_list_shows_project_templates_first(tmp_path, monkeypatch)
     assert code == 0
     assert "Project templates:" in out
     assert "  component" in out
+    assert "Path: .seed/templates/project/component.tree" in out
+    assert str(project_root) not in out
     assert out.index("Project templates:") < out.index("Stored templates:")
+
+
+def test_cli_templates_list_shows_local_sources_as_relative_paths(tmp_path, monkeypatch):
+    seed_home = tmp_path / "seed-home"
+    project_root = tmp_path / "repo"
+    project_root.mkdir()
+    (project_root / ".git").mkdir()
+    source = project_root / "templates" / "component.tree"
+    source.parent.mkdir()
+    source.write_text("<name>/\n└── route.ts\n")
+    monkeypatch.setenv("SEED_HOME", str(seed_home))
+    write_template_registry_entries(
+        seed_home,
+        {
+            "component": {
+                "source": f"local:{source}",
+            },
+        },
+    )
+
+    code, out, err = run(["templates", "list"], project_root)
+
+    assert code == 0
+    assert "Source: local:templates/component.tree" in out
+    assert str(project_root) not in out
 
 
 def test_cli_templates_use_discovers_project_template_and_uses_folder(tmp_path):
@@ -527,6 +578,100 @@ def test_cli_templates_use_discovers_project_template_and_uses_folder(tmp_path):
 
     assert code == 0
     assert (project_root / "users" / "api" / "route.ts").exists()
+
+
+def test_cli_template_use_project_template_accepts_stripped_id_storage_name(tmp_path):
+    project_root = tmp_path / "repo"
+    project_root.mkdir()
+    (project_root / ".git").mkdir()
+    template_dir = project_root / ".seed" / "templates" / "project"
+    template_dir.mkdir(parents=True)
+    (template_dir / "person.tree").write_text(
+        ".\n"
+        "└── <person_id>/\n"
+        "    └── api/\n"
+        "        └── route.ts\n"
+    )
+
+    code, out, err = run(["template", "use", "person_id", "12312123"], project_root)
+
+    assert code == 0
+    assert (project_root / "12312123" / "api" / "route.ts").exists()
+
+
+def test_cli_template_use_project_template_uses_name_for_literal_root(tmp_path):
+    project_root = tmp_path / "repo"
+    project_root.mkdir()
+    (project_root / ".git").mkdir()
+    template_dir = project_root / ".seed" / "templates" / "project"
+    template_dir.mkdir(parents=True)
+    (template_dir / "person_id.tree").write_text(
+        ".\n"
+        "└── person_id/\n"
+        "    └── api/\n"
+        "        └── route.ts\n"
+    )
+
+    code, out, err = run(["template", "use", "person_id", "12312123"], project_root)
+
+    assert code == 0
+    assert (project_root / "12312123" / "api" / "route.ts").exists()
+    assert not (project_root / "person_id").exists()
+
+
+def test_cli_template_use_project_template_accepts_name_value_shorthand(tmp_path):
+    project_root = tmp_path / "repo"
+    project_root.mkdir()
+    (project_root / ".git").mkdir()
+    template_dir = project_root / ".seed" / "templates" / "project"
+    template_dir.mkdir(parents=True)
+    (template_dir / "person_id.tree").write_text(
+        ".\n"
+        "└── person_id/\n"
+        "    └── api/\n"
+        "        └── route.ts\n"
+    )
+
+    code, out, err = run(["template", "use", "person_id=12312123"], project_root)
+
+    assert code == 0
+    assert (project_root / "12312123" / "api" / "route.ts").exists()
+    assert not (project_root / "person_id").exists()
+
+
+def test_cli_template_use_skips_nested_templates_and_keeps_filename_placeholders(tmp_path):
+    project_root = tmp_path / "repo"
+    project_root.mkdir()
+    (project_root / ".git").mkdir()
+    template_dir = project_root / ".seed" / "templates" / "project"
+    template_dir.mkdir(parents=True)
+    (template_dir / "person_id.tree").write_text(
+        ".\n"
+        "└── <person_id>/\n"
+        "    ├── conversations/\n"
+        "    │   └── session_<id>.jsonl\n"
+        "    └── services/\n"
+        "        ├── <service-id>/\n"
+        "        │   └── state/\n"
+        "        └── nutrition-coach/\n"
+        "            └── state/\n"
+    )
+
+    code, out, err = run(["template", "use", "person_id=12312123"], project_root)
+
+    assert code == 0
+    assert (project_root / "12312123" / "conversations" / "session_<id>.jsonl").exists()
+    assert (project_root / "12312123" / "services" / "nutrition-coach" / "state").exists()
+    assert not (project_root / "12312123" / "services" / "<service-id>").exists()
+    assert (
+        project_root
+        / "12312123"
+        / "services"
+        / ".seed"
+        / "templates"
+        / "project"
+        / "service_id.tree"
+    ).exists()
 
 
 def test_cli_template_use_registry_template_uses_folder_argument(tmp_path, monkeypatch):

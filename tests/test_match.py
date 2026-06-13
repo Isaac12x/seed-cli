@@ -411,11 +411,13 @@ def test_filter_nodes_for_planning_removes_paths_with_template_vars():
     """Should remove paths containing unexpanded template variables."""
     nodes = [
         Node(Path("files/<version>/config.json"), False),
+        Node(Path("files/session_<id>.jsonl"), False),
         Node(Path("files/v1/config.json"), False),
     ]
     result = _filter_nodes_for_planning(nodes)
     paths = [n.relpath.as_posix() for n in result]
     assert "files/<version>/config.json" not in paths
+    assert "files/session_<id>.jsonl" in paths
     assert "files/v1/config.json" in paths
 
 
@@ -754,6 +756,106 @@ def test_create_from_template_skips_extras_markers(tmp_path):
     assert not any("..." in p for p in result["paths"])
     # Should have created config.json
     assert any("config.json" in p for p in result["paths"])
+
+
+def test_create_from_template_skips_nested_subtemplates_and_keeps_file_placeholders(tmp_path):
+    """Nested directory templates should not be materialized by the outer template."""
+    spec_path = tmp_path / "person_id.tree"
+    spec_path.write_text(
+        ".\n"
+        "└── <person_id>/\n"
+        "    ├── conversations/\n"
+        "    │   └── session_<id>.jsonl\n"
+        "    └── services/\n"
+        "        ├── <service-id>/\n"
+        "        │   └── state/\n"
+        "        └── nutrition-coach/\n"
+        "            └── state/\n"
+    )
+
+    result = create_from_template(
+        str(spec_path),
+        tmp_path,
+        {"person_id": "1231212"},
+    )
+
+    assert (tmp_path / "1231212" / "conversations" / "session_<id>.jsonl").is_file()
+    assert (tmp_path / "1231212" / "services" / "nutrition-coach" / "state").is_dir()
+    assert not (tmp_path / "1231212" / "services" / "<service-id>").exists()
+    service_template = (
+        tmp_path
+        / "1231212"
+        / "services"
+        / ".seed"
+        / "templates"
+        / "project"
+        / "service_id.tree"
+    )
+    assert service_template.exists()
+    assert service_template.read_text() == ".\n└── <service-id>/\n    └── state/\n"
+    assert "1231212/conversations/session_<id>.jsonl" in result["paths"]
+    assert "1231212/services/.seed/templates/project/service_id.tree" in result["paths"]
+
+
+def test_create_from_template_can_create_nested_subtemplate_when_values_are_supplied(tmp_path):
+    """Supplying nested template values should create the nested template once."""
+    spec_path = tmp_path / "person_id.tree"
+    spec_path.write_text(
+        ".\n"
+        "└── <person_id>/\n"
+        "    └── services/\n"
+        "        └── <service-id>/\n"
+        "            └── state/\n"
+    )
+
+    result = create_from_template(
+        str(spec_path),
+        tmp_path,
+        {"person_id": "1231212", "service-id": "custom-coach"},
+    )
+
+    assert (tmp_path / "1231212" / "services" / "custom-coach" / "state").is_dir()
+    assert (
+        tmp_path
+        / "1231212"
+        / "services"
+        / ".seed"
+        / "templates"
+        / "project"
+        / "service_id.tree"
+    ).exists()
+    assert "1231212/services/custom-coach/state" in result["paths"]
+
+
+def test_create_from_template_installs_nested_subtemplate_under_literal_root(tmp_path):
+    """Literal root fallback should still install nested project templates."""
+    spec_path = tmp_path / "person_id.tree"
+    spec_path.write_text(
+        ".\n"
+        "└── person_id/\n"
+        "    └── services/\n"
+        "        └── <service-id>/\n"
+        "            └── state/\n"
+    )
+
+    result = create_from_template(
+        str(spec_path),
+        tmp_path,
+        {"person_id": "1231212"},
+    )
+
+    assert (tmp_path / "1231212" / "services").is_dir()
+    assert not (tmp_path / "1231212" / "services" / "<service-id>").exists()
+    assert (
+        tmp_path
+        / "1231212"
+        / "services"
+        / ".seed"
+        / "templates"
+        / "project"
+        / "service_id.tree"
+    ).exists()
+    assert "1231212/services/.seed/templates/project/service_id.tree" in result["paths"]
 
 
 # -----------------------------------------------------------------------------

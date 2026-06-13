@@ -239,10 +239,12 @@ seed templates remove my-template
 ```
 
 `seed templates list` also shows project-local templates discovered from
-`.seed/templates/project/`, before global registry templates. `seed templates
-use <name> <folder>` resolves a visible project template first, then falls back
-to the global registry. The singular alias `seed template use ...` is also
-accepted.
+`.seed/templates/project/`, before global registry templates, using paths
+relative to the project. Subtemplates are scoped to the parent directory where
+they are meant to be used, so a template registered under `features/.seed/` is
+only visible from `features/` or its children. `seed templates use <name>
+<folder>` resolves a visible project template first, then falls back to the
+global registry. The singular alias `seed template use ...` is also accepted.
 
 Built-in templates include `fastapi`, `python-package`, and `node-typescript`.
 
