@@ -530,6 +530,9 @@ def _expand_target(target: MaintenanceTarget) -> List[MaintenanceStep]:
 
 
 def _expand_goal(target: MaintenanceTarget, goal: str) -> List[MaintenanceStep]:
+    if goal == "gbrain-sync":
+        return _gbrain_sync_steps(target)
+
     if goal == "ensure-path":
         path = _require_target_path(target, goal)
         return [
@@ -592,6 +595,100 @@ def _expand_goal(target: MaintenanceTarget, goal: str) -> List[MaintenanceStep]:
             ]
 
     raise ValueError(f"Unsupported goal '{goal}' for target '{target.name}' ({target.kind})")
+
+
+def _gbrain_sync_steps(target: MaintenanceTarget) -> List[MaintenanceStep]:
+    """Emit steps that re-export, install/activate, optionally migrate, then sync.
+
+    The target's ``gbrain`` block configures the compile:
+
+        gbrain:
+          spec: brain.seed          # required, relative to target path
+          name: my-brain-pack       # optional; default derived
+          extends: gbrain-base      # optional
+          activate: repo|home|both|none  # default: repo
+          migrate: auto|prompt|off  # default: prompt
+          run_sync: true            # default: true; emit `gbrain sync` step
+          kindmap: ./.seed/gbrain/kindmap.yml  # optional
+          version_from: hash|spec|<literal>    # optional
+    """
+    config = target.metadata.get("gbrain") if isinstance(target.metadata.get("gbrain"), dict) else None
+    if not config:
+        raise ValueError(
+            f"Goal 'gbrain-sync' requires a 'gbrain' block on target '{target.name}'"
+        )
+    spec = config.get("spec")
+    if not spec:
+        raise ValueError(
+            f"Goal 'gbrain-sync' requires 'gbrain.spec' on target '{target.name}'"
+        )
+    cwd = target.path or None
+    activate_mode = str(config.get("activate") or "repo")
+    if activate_mode not in {"repo", "home", "both", "none"}:
+        raise ValueError(
+            f"gbrain.activate for '{target.name}' must be one of repo|home|both|none"
+        )
+    migrate = str(config.get("migrate") or "prompt").lower()
+    if migrate not in {"auto", "prompt", "off"}:
+        raise ValueError(
+            f"gbrain.migrate for '{target.name}' must be one of auto|prompt|off"
+        )
+    pack_name = config.get("name")
+    extends = config.get("extends")
+    kindmap = config.get("kindmap")
+    version_from = config.get("version_from")
+    run_sync = bool(config.get("run_sync", True))
+
+    export_args = ["seed", "export", "gbrain", str(spec), "--install", "--activate", activate_mode]
+    if pack_name:
+        export_args.extend(["--name", str(pack_name)])
+    if extends:
+        export_args.extend(["--extends", str(extends)])
+    if kindmap:
+        export_args.extend(["--kindmap", str(kindmap)])
+    if version_from:
+        export_args.extend(["--version-from", str(version_from)])
+
+    steps: List[MaintenanceStep] = [
+        MaintenanceStep(
+            op="run",
+            target=target.name,
+            name="gbrain-export",
+            reason="gbrain-sync",
+            tool="seed",
+            argv=export_args,
+            cwd=cwd,
+        )
+    ]
+
+    if migrate == "auto" and pack_name:
+        params = json.dumps({"target_pack": str(pack_name)})
+        steps.append(
+            MaintenanceStep(
+                op="run",
+                target=target.name,
+                name="gbrain-unify-types",
+                reason="gbrain-sync",
+                tool="gbrain",
+                argv=["gbrain", "jobs", "submit", "unify-types", "--allow-protected", "--params", params],
+                cwd=cwd,
+            )
+        )
+
+    if run_sync:
+        steps.append(
+            MaintenanceStep(
+                op="run",
+                target=target.name,
+                name="gbrain-reindex",
+                reason="gbrain-sync",
+                tool="gbrain",
+                argv=["gbrain", "sync"],
+                cwd=cwd,
+            )
+        )
+
+    return steps
 
 
 def _compose_step(
