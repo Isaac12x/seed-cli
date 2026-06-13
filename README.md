@@ -24,6 +24,7 @@ Think **Terraform for directory trees**, plus **template scaffolding** and
 - Reusable template registry with versions, locking, content sources, and built-in templates
 - Copier-style template config support: questions, defaults, answers files, excludes, skip-if-exists, and gated tasks
 - Manifest-driven repository/service/system maintenance with `seed maintain`
+- GBrain integration: `seed export gbrain`, `seed amend`, `gbrain-sync` goal, plus brain-aware hooks and watch
 - Structure locking, watch mode, state locks, hooks, Graphviz export, and shell completion
 
 ## Install
@@ -71,6 +72,7 @@ seed maintain maintenance.yml --execute
 | Templates | `register`, `create`, `templates` (`template`) | Register, instantiate, and manage reusable specs |
 | State & History | `capture`, `revert`, `specs`, `lock` | Capture state, recover snapshots, inspect history, and enforce structure versions |
 | Maintenance | `doctor`, `maintain`, `hooks` | Lint specs, run repository/service maintenance, and install hooks |
+| GBrain | `export gbrain`, `amend`, `specs watch --gbrain`, `hooks install --gbrain` | Compile a brain pack from a `.seed` spec, reconcile drift, and wire up brain hooks |
 | Export & Utilities | `export`, `utils` | Export trees/plans/DOT output and run helper tools |
 
 ## Core Workflow
@@ -394,6 +396,96 @@ seed maintain ./workspace
 seed maintain ./workspace --execute
 ```
 
+## GBrain Integration
+
+seed-cli compiles `.seed` specs into [gbrain](https://github.com/garrytan/gbrain)
+schema packs, keeps them in sync as the spec evolves, and folds drift back into
+the spec so the brain stays authoritative.
+
+### Export a pack
+
+```bash
+seed export gbrain brain.seed
+seed export gbrain brain.seed --name my-brain --install --activate repo
+seed export gbrain brain.seed --dry-run --json
+```
+
+Default output is `./.gbrain/pack/`. Versions are deterministic: `0.0.<patch>`
+derived from a hash of the compiled spec (build metadata is stripped because
+gbrain rejects it). Bundled at `resources/gbrain/kindmap.yml`; override with
+`--kindmap`.
+
+Key flags:
+
+- `--name` pack name (default derived from spec)
+- `--extends` base pack to inherit (default `gbrain-base`)
+- `--kindmap` override the kindmap
+- `--version-from {hash,spec,<literal>}` version source (default `hash`)
+- `--install` copy pack to `~/.gbrain/schema-packs/<name>/`
+- `--activate {repo,home,both,none}` write `gbrain.yml` (repo) and/or `gbrain schema use` (home)
+- `--gbrain-min-version` override the `gbrain_min_version` field
+- `--skip-validate` skip `gbrain schema validate`
+- `--migrate {off,prompt,auto}` emit `migration_from` + `mapping_rules` from prefix diff against the prior spec; `auto` also submits `gbrain jobs submit unify-types`
+- `--migrate-from` prior spec path (default: latest `.seed/specs/`)
+- `--dry-run`, `--json`
+
+### Reconcile drift back into the spec
+
+`seed amend` folds filesystem drift (and optionally gbrain's active pack
+typing) back into the `.seed` spec so the spec stays the source of truth.
+
+```bash
+seed amend brain.seed --from-fs --policy adopt --reexport
+seed amend brain.seed --from-gbrain --policy quarantine --quarantine-dir _inbox/
+seed amend brain.seed --dry-run --json
+```
+
+- `--from-fs` capture live filesystem (default on)
+- `--from-gbrain` also read `gbrain schema show --json`; already-typed prefixes are not double-created
+- `--policy {adopt,ignore,quarantine}` how to resolve new paths
+- `--quarantine-dir` prefix for quarantined entries (default `_inbox/`)
+- `--reexport` re-run `seed export gbrain` after amending
+- Ignored entries persist at `.seed/gbrain/ignore.yml`
+
+### Maintenance goal
+
+The `gbrain-sync` goal in a maintenance manifest exports → optionally migrates
+types → optionally syncs the brain.
+
+```yaml
+targets:
+  - name: my-brain
+    kind: project
+    path: ./brains/my-brain
+    metadata:
+      gbrain:
+        spec: brain.seed
+        name: my-brain-pack
+        extends: gbrain-base
+        activate: repo          # repo|home|both|none
+        migrate: prompt         # off|prompt|auto
+        run_sync: true          # emit `gbrain sync`
+        # optional: kindmap, version_from
+    goals:
+      - gbrain-sync
+```
+
+### Brain hooks and watch
+
+```bash
+seed hooks install --gbrain --spec brain.seed --name my-brain --activate repo
+seed specs watch --gbrain --spec brain.seed --name my-brain --activate repo
+```
+
+`hooks install --gbrain` writes `hooks/post_apply_gbrain.sh` and a
+`.git/hooks/pre-push` stale-pack guard. `specs watch --gbrain` re-exports the
+pack each time `.seed/specs/` advances.
+
+### Upstream PR draft
+
+See `docs/gbrain/upstream-detect-pr.md` for the planned `gbrain schema detect`
+seed-spec provider (file lookup order, kindmap-mirror strategy, tests, risks).
+
 ## Snapshots, Spec History, and Locks
 
 Snapshots are created automatically before `apply`, `sync`, and `match`:
@@ -436,6 +528,7 @@ Export current state or a plan:
 seed export tree --out structure.tree
 seed export json --out structure.json
 seed export dot --out structure.dot
+seed export gbrain brain.seed --install --activate repo
 seed plan spec.tree --dot > plan.dot
 ```
 
@@ -444,6 +537,7 @@ Install git hooks:
 ```bash
 seed hooks install
 seed hooks install --hook pre-push
+seed hooks install --gbrain --spec brain.seed --name my-brain
 ```
 
 Utilities:

@@ -1,0 +1,85 @@
+# Default seed !kind -> gbrain page-type mapping.
+# Users override per-repo at .seed/gbrain/kindmap.yml.
+#
+# Fields per entry:
+#   type            -> gbrain page-type name (default: the key)
+#   primitive       -> entity | concept | media | temporal | annotation (default: concept)
+#   extractable     -> bool (default: false)
+#   expert_routing  -> bool (default: false; auto-true for entity primitive)
+#   aliases         -> list[str] (default: [])
+#
+# Loose-kinds policy (PRD §4): an unrecognised !kind compiles to a derived
+# concept type. Never fail.
+
+person:
+  type: person
+  primitive: entity
+  expert_routing: true
+  aliases: [contact, individual]
+contact:
+  type: person
+  primitive: entity
+  expert_routing: true
+  aliases: [contact]
+company:
+  type: company
+  primitive: entity
+  expert_routing: true
+  aliases: [org, organization]
+org:
+  type: company
+  primitive: entity
+  expert_routing: true
+  aliases: [organization]
+organization:
+  type: company
+  primitive: entity
+  expert_routing: true
+  aliases: [org]
+project:
+  type: project
+  primitive: concept
+  expert_routing: false
+service:
+  type: service
+  primitive: concept
+  expert_routing: false
+note:
+  type: note
+  primitive: concept
+  extractable: true
+doc:
+  type: doc
+  primitive: media
+  extractable: true
+document:
+  type: doc
+  primitive: media
+  extractable: true
+deal:
+  type: deal
+  primitive: temporal
+  expert_routing: false
+meeting:
+  type: meeting
+  primitive: temporal
+  extractable: true
+email:
+  type: email
+  primitive: temporal
+  extractable: true
+source:
+  type: source
+  primitive: media
+  extractable: true
+guide:
+  type: guide
+  primitive: media
+concept:
+  type: concept
+  primitive: concept
+  extractable: true
+writing:
+  type: writing
+  primitive: media
+  extractable: true

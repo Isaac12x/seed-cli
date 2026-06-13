@@ -153,6 +153,101 @@ def _visible_project_templates(start: Path) -> list[tuple[str, Path]]:
     return rows
 
 
+def _make_gbrain_specs_watch_callback(base: Path, *, spec, name, activate_mode):
+    """Return a callback for `seed specs watch --gbrain` that re-exports on capture."""
+    from seed_cli.gbrain import export_gbrain
+
+    spec_path = spec or "brain.seed"
+
+    def callback(msg_type: str, message: str) -> None:
+        print(f"[{msg_type}] {message}")
+        if msg_type != "captured":
+            return
+        try:
+            export_gbrain(
+                spec=str(spec_path),
+                base=base,
+                name=name,
+                install=True,
+                activate_mode=activate_mode or "repo",
+                skip_validate=True,
+            )
+            print("[gbrain] pack refreshed")
+        except FileNotFoundError as e:
+            print(f"[gbrain] skipped: {e}")
+        except Exception as e:
+            print(f"[gbrain] error: {e}")
+
+    return callback
+
+
+def _run_export_gbrain(args, base: Path, cli_vars: dict) -> int:
+    """Dispatch `seed export gbrain ...`."""
+    import json as _json
+    from seed_cli.gbrain import export_gbrain
+    from seed_cli.gbrain.compiler import DEFAULT_EXTENDS, DEFAULT_MIN_VERSION
+
+    spec = getattr(args, "spec", None) or args.input
+    if not spec:
+        print(
+            "error: `seed export gbrain` requires a spec positional or --input",
+            file=sys.stderr,
+        )
+        return 2
+
+    extends = getattr(args, "extends", None) or DEFAULT_EXTENDS
+    if str(extends).lower() in {"none", "null"}:
+        extends = None
+
+    try:
+        result = export_gbrain(
+            spec=spec,
+            base=base,
+            out=Path(args.out) if args.out else None,
+            name=getattr(args, "name", None),
+            extends=extends,
+            kindmap_path=Path(args.kindmap) if getattr(args, "kindmap", None) else None,
+            version_from=getattr(args, "version_from", "hash"),
+            install=bool(getattr(args, "install", False)),
+            activate_mode=getattr(args, "activate", "none"),
+            vars=cli_vars or None,
+            gbrain_min_version=getattr(args, "gbrain_min_version", None) or DEFAULT_MIN_VERSION,
+            dry_run=bool(getattr(args, "dry_run", False)),
+            skip_validate=bool(getattr(args, "skip_validate", False)),
+            migrate=getattr(args, "migrate", "off"),
+            migrate_from=getattr(args, "migrate_from", None),
+        )
+    except FileNotFoundError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+
+    if getattr(args, "json", False):
+        print(_json.dumps(result.to_summary(), indent=2, sort_keys=True))
+    else:
+        if args.dry_run:
+            print("[dry-run] would write", result.pack_path)
+        else:
+            print(f"pack:    {result.pack_path}")
+            print(f"version: {result.manifest.get('version')}")
+            print(f"types:   {[p.get('name') for p in result.manifest.get('page_types', [])]}")
+            if result.activation:
+                if result.activation.repo_yaml:
+                    print(f"repo:    {result.activation.repo_yaml}")
+                if result.activation.home_pack:
+                    print(f"home:    {result.activation.home_pack}")
+            if result.validate_ok is True:
+                print("validate: ok")
+            elif result.validate_ok is False:
+                print("validate: FAILED", file=sys.stderr)
+        for diag in result.diagnostics:
+            print(f"note: {diag}", file=sys.stderr)
+        for problem in result.lint_problems:
+            print(f"lint: {problem}", file=sys.stderr)
+    if result.lint_problems:
+        return 1
+    if result.validate_ok is False:
+        return 1
+    return 0
 def _display_relative_path(path: Path, base: Path) -> str:
     """Return a stable non-absolute path for terminal output."""
     resolved = path.resolve()
@@ -489,10 +584,40 @@ def build_parser() -> argparse.ArgumentParser:
         description="Export filesystem state or plan in various formats",
         help="Export filesystem state or plan",
     )
-    se.add_argument("kind", choices=["tree", "json", "plan", "dot"], help="Export format")
+    se.add_argument("kind", choices=["tree", "json", "plan", "dot", "gbrain"], help="Export format")
+    se.add_argument("spec", nargs="?",
+                    help="Spec file (gbrain only; tree/json/plan/dot use --input)")
     se.add_argument("--input", help="Input spec or plan file (default: capture from filesystem)")
-    se.add_argument("--out", required=True, help="Output file path")
+    se.add_argument("--out",
+                    help="Output path. Required file for tree/json/plan/dot; "
+                         "directory for gbrain (default: ./.gbrain/pack/).")
     se.add_argument("--base", default=".", help="Base directory (default: current directory)")
+    se.add_argument("--vars", action="append", help="Template variables (key=value)")
+    # gbrain-specific flags
+    se.add_argument("--name", help="(gbrain) Pack name (default: derived from spec)")
+    se.add_argument("--extends", default=None,
+                    help="(gbrain) Base pack to inherit (default: gbrain-base)")
+    se.add_argument("--kindmap", help="(gbrain) Override kindmap path")
+    se.add_argument("--version-from", dest="version_from", default="hash",
+                    help="(gbrain) Version source: hash | spec | <literal> (default: hash)")
+    se.add_argument("--install", action="store_true",
+                    help="(gbrain) Copy pack to ~/.gbrain/schema-packs/<name>/")
+    se.add_argument("--activate", choices=["repo", "home", "both", "none"], default="none",
+                    help="(gbrain) Activation mode: repo (gbrain.yml), home (gbrain schema use), both, none")
+    se.add_argument("--gbrain-min-version", dest="gbrain_min_version", default=None,
+                    help="(gbrain) Override gbrain_min_version field")
+    se.add_argument("--skip-validate", action="store_true",
+                    help="(gbrain) Skip `gbrain schema validate` even if available")
+    se.add_argument("--migrate", choices=["off", "prompt", "auto"], default="off",
+                    help="(gbrain) Successor-pack migration: off (no rules), prompt "
+                         "(emit rules + instructions), auto (emit rules + submit unify-types)")
+    se.add_argument("--migrate-from", dest="migrate_from", default=None,
+                    help="(gbrain) Path to a prior spec to diff against (default: "
+                         "latest entry in .seed/specs/)")
+    se.add_argument("--dry-run", action="store_true",
+                    help="(gbrain) Compile but write nothing")
+    se.add_argument("--json", action="store_true",
+                    help="(gbrain) Emit machine-readable summary on stdout")
 
     # lock - structure locking
     sl = sub.add_parser(
@@ -575,6 +700,18 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         help="Hook name to install (e.g. pre-commit). Defaults to pre-commit if not specified.",
     )
+    sh.add_argument(
+        "--gbrain",
+        action="store_true",
+        help="Install gbrain brain hooks (post-apply re-export + pre-push stale-pack check).",
+    )
+    sh.add_argument("--spec", default="brain.seed",
+                    help="(--gbrain) Spec file used by hooks (default: brain.seed)")
+    sh.add_argument("--name", default="brain-pack",
+                    help="(--gbrain) Pack name used by hooks (default: brain-pack)")
+    sh.add_argument("--activate", default="repo", choices=["repo", "home", "both", "none"],
+                    help="(--gbrain) Activation mode for the post-apply re-export.")
+    sh.add_argument("--base", default=".", help="Base directory (default: current directory)")
 
     # specs - view captured spec history
     ssp = sub.add_parser(
@@ -619,6 +756,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     specs_watch.add_argument("--base", default=".", help="Base directory")
     specs_watch.add_argument("--interval", type=float, default=1.0, help="Check interval in seconds")
+    specs_watch.add_argument("--gbrain", action="store_true",
+                             help="Re-export the gbrain pack on each captured spec change.")
+    specs_watch.add_argument("--spec", default="brain.seed",
+                             help="(--gbrain) Spec file used by re-export (default: brain.seed)")
+    specs_watch.add_argument("--name", default=None,
+                             help="(--gbrain) Pack name (default: derived from spec)")
+    specs_watch.add_argument("--activate", default="repo",
+                             choices=["repo", "home", "both", "none"],
+                             help="(--gbrain) Activation mode for re-export")
 
     # templates - manage reusable specs from GitHub
     stpl = sub.add_parser(
@@ -721,6 +867,36 @@ def build_parser() -> argparse.ArgumentParser:
     tpl_versions.add_argument("--add", metavar="PATH", help="Add a new version from file")
     tpl_versions.add_argument("--name", dest="version_name", metavar="VERSION", help="Name for the new version (with --add)")
     tpl_versions.add_argument("--set-current", metavar="VERSION", help="Set version as current")
+
+    # amend - reverse-drift reconciliation
+    samend = sub.add_parser(
+        "amend",
+        description=(
+            "Fold drift back into a .seed spec. Discovers paths present on disk "
+            "(and optionally types declared by gbrain's active pack) that the "
+            "spec doesn't yet describe, then adopts / ignores / quarantines "
+            "them so the spec remains the source of truth."
+        ),
+        help="Reconcile filesystem and gbrain drift back into the .seed spec",
+    )
+    samend.add_argument("spec", help="Spec file to amend")
+    samend.add_argument("--base", default=".", help="Base directory")
+    samend.add_argument("--from-fs", dest="from_fs", action="store_true",
+                        default=True, help="Capture live FS (default)")
+    samend.add_argument("--no-from-fs", dest="from_fs", action="store_false",
+                        help="Skip filesystem drift detection")
+    samend.add_argument("--from-gbrain", dest="from_gbrain", action="store_true",
+                        help="Also read `gbrain schema show --json`")
+    samend.add_argument("--policy", choices=["adopt", "ignore", "quarantine"],
+                        default="adopt", help="Drift resolution policy")
+    samend.add_argument("--quarantine-dir", dest="quarantine_dir", default="_inbox/",
+                        help="Prefix for quarantined entries (default: _inbox/)")
+    samend.add_argument("--reexport", action="store_true",
+                        help="Re-run `seed export gbrain` after amending")
+    samend.add_argument("--dry-run", action="store_true",
+                        help="Preview changes without writing")
+    samend.add_argument("--json", action="store_true",
+                        help="Emit machine-readable summary on stdout")
 
     # utils
     sut = sub.add_parser(
@@ -1274,8 +1450,21 @@ def _run(args) -> int:
                 return 1
 
         if action == "watch":
+            gbrain_cb = None
+            if getattr(args, "gbrain", False):
+                gbrain_cb = _make_gbrain_specs_watch_callback(
+                    base,
+                    spec=getattr(args, "spec", None),
+                    name=getattr(args, "name", None),
+                    activate_mode=getattr(args, "activate", "repo"),
+                )
             try:
-                watch_specs(base, interval=args.interval, ignore=args.ignore)
+                watch_specs(
+                    base,
+                    interval=args.interval,
+                    ignore=args.ignore,
+                    callback=gbrain_cb,
+                )
             except KeyboardInterrupt:
                 pass
             return 0
@@ -1284,15 +1473,21 @@ def _run(args) -> int:
 
     # ---------------- EXPORT ----------------
     if args.cmd == "export":
+        if args.kind == "gbrain":
+            return _run_export_gbrain(args, base, vars)
+
+        if not args.out:
+            print("error: --out is required for tree/json/plan/dot exports", file=sys.stderr)
+            return 2
         out = Path(args.out)
-        
+
         # Get nodes: from input file if provided, otherwise capture from filesystem
         if args.input:
             from seed_cli.parsers import parse_spec
             _, nodes = parse_spec(args.input, vars=vars, base=base)
         else:
             nodes = capture_nodes(base)
-        
+
         if args.kind == "tree":
             export_tree(nodes, out)
         elif args.kind == "json":
@@ -1913,9 +2108,64 @@ def _run(args) -> int:
         print(f"Unknown templates action: {action}")
         return 1
 
+    # ---------------- AMEND ----------------
+    if args.cmd == "amend":
+        from seed_cli.gbrain import amend as gbrain_amend
+        import json as _json
+
+        try:
+            result = gbrain_amend(
+                spec=args.spec,
+                base=base,
+                policy=args.policy,
+                from_fs=bool(getattr(args, "from_fs", True)),
+                from_gbrain=bool(getattr(args, "from_gbrain", False)),
+                quarantine_dir=getattr(args, "quarantine_dir", "_inbox/"),
+                reexport=bool(getattr(args, "reexport", False)),
+                dry_run=bool(getattr(args, "dry_run", False)),
+            )
+        except (FileNotFoundError, ValueError) as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
+
+        if getattr(args, "json", False):
+            print(_json.dumps(result.to_summary(), indent=2, sort_keys=True))
+        else:
+            if not result.changes:
+                print("no drift detected")
+            else:
+                action = "would" if args.dry_run else "did"
+                print(f"{action} {args.policy} {len(result.changes)} drifted path(s):")
+                for change in result.changes:
+                    kind = f" !{change.kind}" if change.kind else ""
+                    print(f"  - {change.path}{'/' if change.is_dir else ''}{kind}")
+            if result.spec_rewritten:
+                print(f"spec rewritten: {result.spec_path}")
+            if result.reexport_summary:
+                print(f"pack regenerated: {result.reexport_summary.get('pack')}")
+        return 0
+
     # ---------------- HOOKS (git) ----------------
     if args.cmd == "hooks":
         if args.action == "install":
+            if getattr(args, "gbrain", False):
+                from seed_cli.templates import (
+                    install_gbrain_post_apply_hook,
+                    install_gbrain_pre_push_hook,
+                )
+                post = install_gbrain_post_apply_hook(
+                    base,
+                    spec=args.spec,
+                    name=args.name,
+                    activate_mode=getattr(args, "activate", "repo"),
+                )
+                print(f"Installed seed hook: {post}")
+                try:
+                    pre = install_gbrain_pre_push_hook(base, spec=args.spec)
+                    print(f"Installed git hook: {pre}")
+                except RuntimeError as e:
+                    print(f"warning: pre-push hook not installed ({e})", file=sys.stderr)
+                return 0
             hooks = args.hook or ["pre-commit"]
             for h in hooks:
                 install_git_hook(base, h)
@@ -2362,6 +2612,47 @@ def create_command(ctx, template, project, create_args, base, dry_run):
     )
 
 
+@click_cli.command(
+    "amend",
+    help="Fold filesystem / gbrain drift back into a .seed spec.",
+    context_settings=dict(ignore_unknown_options=False),
+)
+@click.argument("spec")
+@click.option("--base", default=".", show_default=True, help="Base directory.")
+@click.option("--from-fs/--no-from-fs", "from_fs", default=True,
+              help="Capture live filesystem (default).")
+@click.option("--from-gbrain", "from_gbrain", is_flag=True,
+              help="Also read `gbrain schema show --json`.")
+@click.option("--policy", type=click.Choice(["adopt", "ignore", "quarantine"]),
+              default="adopt", show_default=True, help="Drift resolution policy.")
+@click.option("--quarantine-dir", "quarantine_dir", default="_inbox/",
+              show_default=True, help="Prefix for quarantined entries.")
+@click.option("--reexport", is_flag=True,
+              help="Re-run `seed export gbrain` after amending.")
+@click.option("--dry-run", "dry_run", is_flag=True,
+              help="Preview changes without writing.")
+@click.option("--json", "json_", is_flag=True,
+              help="Emit machine-readable summary on stdout.")
+@click.pass_context
+def amend_command(
+    ctx, spec, base, from_fs, from_gbrain, policy, quarantine_dir,
+    reexport, dry_run, json_,
+):
+    return _dispatch(
+        ctx,
+        "amend",
+        spec=spec,
+        base=base,
+        from_fs=from_fs,
+        from_gbrain=from_gbrain,
+        policy=policy,
+        quarantine_dir=quarantine_dir,
+        reexport=reexport,
+        dry_run=dry_run,
+        json=json_,
+    )
+
+
 @click_cli.command("revert", help="Revert filesystem to a previous snapshot.")
 @click.argument("snapshot_id", required=False)
 @click.option("--base", default=".", show_default=True, help="Base directory.")
@@ -2392,14 +2683,68 @@ def capture_command(ctx, base, as_json, dot, out):
     return _dispatch(ctx, "capture", base=base, json=as_json, dot=dot, out=out)
 
 
-@click_cli.command("export", help="Export filesystem state or plans.")
-@click.argument("kind", type=click.Choice(["tree", "json", "plan", "dot"]))
-@click.option("--input", "input_", help="Input spec or plan file.")
-@click.option("--out", required=True, help="Output file path.")
+@click_cli.command(
+    "export",
+    help=(
+        "Export filesystem state or plans. "
+        "Use `seed export gbrain SPEC [...]` to compile a .seed spec into a "
+        "gbrain-schema-pack-v1 manifest."
+    ),
+    context_settings=dict(ignore_unknown_options=False),
+)
+@click.argument("kind", type=click.Choice(["tree", "json", "plan", "dot", "gbrain"]))
+@click.argument("spec", required=False)
+@click.option("--input", "input_", help="Input spec or plan file (tree/json/plan/dot).")
+@click.option("--out", help="Output path (file for tree/json/plan/dot; directory for gbrain).")
 @click.option("--base", default=".", show_default=True, help="Base directory.")
+@click.option("--vars", "vars_", multiple=True, help="Template variables (key=value).")
+@click.option("--name", "name_", help="(gbrain) Pack name.")
+@click.option("--extends", default=None, help="(gbrain) Base pack to inherit.")
+@click.option("--kindmap", help="(gbrain) Override kindmap path.")
+@click.option("--version-from", "version_from", default="hash", show_default=True,
+              help="(gbrain) Version source: hash | spec | <literal>.")
+@click.option("--install", is_flag=True, help="(gbrain) Copy pack to ~/.gbrain/schema-packs/<name>/.")
+@click.option("--activate", "activate_mode", type=click.Choice(["repo", "home", "both", "none"]),
+              default="none", show_default=True, help="(gbrain) Activation mode.")
+@click.option("--gbrain-min-version", "gbrain_min_version", default=None,
+              help="(gbrain) Override gbrain_min_version field.")
+@click.option("--skip-validate", is_flag=True,
+              help="(gbrain) Skip `gbrain schema validate` even if available.")
+@click.option("--migrate", type=click.Choice(["off", "prompt", "auto"]), default="off",
+              show_default=True, help="(gbrain) Forward-migration mode.")
+@click.option("--migrate-from", "migrate_from", default=None,
+              help="(gbrain) Path to a prior spec to diff against.")
+@click.option("--dry-run", is_flag=True, help="(gbrain) Compile but write nothing.")
+@click.option("--json", "json_", is_flag=True,
+              help="(gbrain) Emit machine-readable summary on stdout.")
 @click.pass_context
-def export_command(ctx, kind, input_, out, base):
-    return _dispatch(ctx, "export", kind=kind, input=input_, out=out, base=base)
+def export_command(
+    ctx, kind, spec, input_, out, base, vars_, name_, extends, kindmap,
+    version_from, install, activate_mode, gbrain_min_version, skip_validate,
+    migrate, migrate_from, dry_run, json_,
+):
+    return _dispatch(
+        ctx,
+        "export",
+        kind=kind,
+        spec=spec,
+        input=input_,
+        out=out,
+        base=base,
+        vars=list(vars_),
+        name=name_,
+        extends=extends,
+        kindmap=kindmap,
+        version_from=version_from,
+        install=install,
+        activate=activate_mode,
+        gbrain_min_version=gbrain_min_version,
+        skip_validate=skip_validate,
+        migrate=migrate,
+        migrate_from=migrate_from,
+        dry_run=dry_run,
+        json=json_,
+    )
 
 
 @click_cli.group(
@@ -2475,11 +2820,32 @@ def hooks_group(ctx):
         ctx.exit(1)
 
 
-@hooks_group.command("install", help="Install git hooks.")
-@click.option("--hook", multiple=True, help="Hook name to install.")
+@hooks_group.command("install", help="Install git hooks or gbrain brain hooks.")
+@click.option("--hook", multiple=True, help="Hook name to install (e.g. pre-commit).")
+@click.option("--gbrain", is_flag=True,
+              help="Install gbrain post-apply + pre-push hooks.")
+@click.option("--spec", default="brain.seed", show_default=True,
+              help="(--gbrain) Spec file used by the installed hooks.")
+@click.option("--name", "name_", default="brain-pack", show_default=True,
+              help="(--gbrain) Pack name used by the installed hooks.")
+@click.option("--activate", "activate_mode",
+              type=click.Choice(["repo", "home", "both", "none"]),
+              default="repo", show_default=True,
+              help="(--gbrain) Activation mode for re-export.")
+@click.option("--base", default=".", show_default=True, help="Base directory.")
 @click.pass_context
-def hooks_install_command(ctx, hook):
-    return _dispatch(ctx, "hooks", action="install", hook=list(hook) or None, base=".")
+def hooks_install_command(ctx, hook, gbrain, spec, name_, activate_mode, base):
+    return _dispatch(
+        ctx,
+        "hooks",
+        action="install",
+        hook=list(hook) or None,
+        gbrain=gbrain,
+        spec=spec,
+        name=name_,
+        activate=activate_mode,
+        base=base,
+    )
 
 
 @click_cli.group(
@@ -2523,9 +2889,29 @@ def specs_diff_command(ctx, v1, v2, base):
 @specs_group.command("watch", help="Watch filesystem changes and capture specs.")
 @click.option("--base", default=".", show_default=True, help="Base directory.")
 @click.option("--interval", type=float, default=1.0, show_default=True, help="Check interval in seconds.")
+@click.option("--gbrain", is_flag=True,
+              help="Re-export the gbrain pack on each captured spec change.")
+@click.option("--spec", default="brain.seed", show_default=True,
+              help="(--gbrain) Spec file used by re-export.")
+@click.option("--name", "name_", default=None,
+              help="(--gbrain) Pack name (default: derived from spec).")
+@click.option("--activate", "activate_mode",
+              type=click.Choice(["repo", "home", "both", "none"]),
+              default="repo", show_default=True,
+              help="(--gbrain) Activation mode for re-export.")
 @click.pass_context
-def specs_watch_command(ctx, base, interval):
-    return _dispatch(ctx, "specs", specs_action="watch", base=base, interval=interval)
+def specs_watch_command(ctx, base, interval, gbrain, spec, name_, activate_mode):
+    return _dispatch(
+        ctx,
+        "specs",
+        specs_action="watch",
+        base=base,
+        interval=interval,
+        gbrain=gbrain,
+        spec=spec,
+        name=name_,
+        activate=activate_mode,
+    )
 
 
 @click_cli.group(

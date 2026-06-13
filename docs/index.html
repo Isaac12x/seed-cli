@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/bash.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/yaml.min.js"></script>
     <style>
         :root {
             --bg-primary: #0d1117;
@@ -391,6 +392,7 @@
             <button data-tab="sync">Sync & Match</button>
             <button data-tab="syntax">Spec Syntax</button>
             <button data-tab="templates">Templates</button>
+            <button data-tab="gbrain">GBrain</button>
             <button data-tab="lock">Versioning</button>
             <button data-tab="snapshots">Snapshots</button>
             <button data-tab="utils">Utilities</button>
@@ -421,6 +423,10 @@
                 <div class="feature">
                     <h4>History & Locks</h4>
                     <p>Snapshots, spec history, structure locking, and state locks keep changes auditable.</p>
+                </div>
+                <div class="feature">
+                    <h4>GBrain Integration</h4>
+                    <p>Compile <code>.seed</code> specs into gbrain schema packs, reconcile drift, and wire up brain hooks.</p>
                 </div>
             </div>
 
@@ -463,6 +469,14 @@ seed plan project.tree --out plan.json</code></pre>
                 <button class="copy-btn">Copy</button>
                 <pre><code class="language-bash">seed maintain maintenance.yml
 seed maintain maintenance.yml --execute</code></pre>
+            </div>
+
+            <h3>5. Compile a brain pack (gbrain)</h3>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash">seed export gbrain brain.seed --install --activate repo
+seed amend brain.seed --from-fs --policy adopt --reexport
+seed hooks install --gbrain --spec brain.seed --name my-brain</code></pre>
             </div>
 
             <h3>Highlights</h3>
@@ -604,6 +618,53 @@ seed capture --dot --out project.dot</code></pre>
 seed create --template .seed/templates/releases.tree version_id=v3
 seed create --project version_id version_id=v3
 seed create releases.tree version_id=v3 --dry-run</code></pre>
+            </div>
+
+            <div class="command-card">
+                <h4>seed export gbrain &lt;spec&gt; <span class="badge warning">gbrain</span></h4>
+                <p>Compile a <code>.seed</code> spec into a gbrain schema pack. Deterministic <code>0.0.&lt;patch&gt;</code> versioning derived from a spec hash. Default output is <code>./.gbrain/pack/</code>.</p>
+                <div class="options">
+                    <code>--name NAME</code> pack name (default: derived from spec)<br>
+                    <code>--extends BASE</code> base pack to inherit (default: <code>gbrain-base</code>)<br>
+                    <code>--kindmap PATH</code> override kindmap file<br>
+                    <code>--version-from {hash,spec,&lt;literal&gt;}</code> version source (default: <code>hash</code>)<br>
+                    <code>--install</code> copy pack to <code>~/.gbrain/schema-packs/&lt;name&gt;/</code><br>
+                    <code>--activate {repo,home,both,none}</code> write <code>gbrain.yml</code> and/or <code>gbrain schema use</code><br>
+                    <code>--gbrain-min-version</code> override <code>gbrain_min_version</code><br>
+                    <code>--skip-validate</code> skip <code>gbrain schema validate</code><br>
+                    <code>--migrate {off,prompt,auto}</code> forward-migration mode<br>
+                    <code>--migrate-from PATH</code> prior spec to diff (default: latest <code>.seed/specs/</code>)<br>
+                    <code>--dry-run</code> compile without writing<br>
+                    <code>--json</code> emit machine-readable summary
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash">seed export gbrain brain.seed
+seed export gbrain brain.seed --name my-brain --install --activate repo
+seed export gbrain brain.seed --migrate auto --json
+seed export gbrain brain.seed --dry-run</code></pre>
+            </div>
+
+            <div class="command-card">
+                <h4>seed amend &lt;spec&gt; <span class="badge warning">gbrain</span></h4>
+                <p>Fold drift back into a <code>.seed</code> spec. Discovers paths on disk and (optionally) types declared by gbrain's active pack, then adopts / ignores / quarantines them. Persists ignores at <code>.seed/gbrain/ignore.yml</code>.</p>
+                <div class="options">
+                    <code>--base BASE</code> base directory (default: current directory)<br>
+                    <code>--from-fs / --no-from-fs</code> capture live filesystem (default on)<br>
+                    <code>--from-gbrain</code> also read <code>gbrain schema show --json</code><br>
+                    <code>--policy {adopt,ignore,quarantine}</code> drift resolution (default: <code>adopt</code>)<br>
+                    <code>--quarantine-dir DIR</code> prefix for quarantined entries (default: <code>_inbox/</code>)<br>
+                    <code>--reexport</code> re-run <code>seed export gbrain</code> after amending<br>
+                    <code>--dry-run</code> preview without writing<br>
+                    <code>--json</code> emit machine-readable summary
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash">seed amend brain.seed --from-fs --policy adopt --reexport
+seed amend brain.seed --from-gbrain --policy quarantine --quarantine-dir _inbox/
+seed amend brain.seed --dry-run --json</code></pre>
             </div>
         </section>
 
@@ -850,6 +911,71 @@ seed create --project version_id version_id=v3</code></pre>
 
             <h3>Copier-Style Config</h3>
             <p>Template configs are discovered from <code>copier.yml</code>, <code>copier.yaml</code>, <code>.seed-template.yml</code>, or <code>.seed-template.yaml</code>. seed understands question defaults, choices, <code>_exclude</code>, <code>_skip_if_exists</code>, <code>_answers_file</code>, and <code>_tasks</code>.</p>
+        </section>
+
+        <!-- GBrain Tab -->
+        <section id="gbrain" class="tab-content">
+            <h2>GBrain Integration</h2>
+            <p>seed-cli compiles <code>.seed</code> specs into <a href="https://github.com/garrytan/gbrain" style="color: var(--accent);">gbrain</a> schema packs, keeps them in sync as the spec evolves, and folds drift back into the spec so the brain stays authoritative.</p>
+
+            <h3>Compile a Pack</h3>
+            <p>Default output is <code>./.gbrain/pack/</code>. Versions are deterministic: <code>0.0.&lt;patch&gt;</code> derived from a hash of the compiled spec (build metadata is stripped because gbrain rejects it). The bundled kindmap lives at <code>resources/gbrain/kindmap.yml</code>; override with <code>--kindmap</code>.</p>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash">seed export gbrain brain.seed
+seed export gbrain brain.seed --name my-brain --install --activate repo
+seed export gbrain brain.seed --extends gbrain-base --version-from hash
+seed export gbrain brain.seed --dry-run --json</code></pre>
+            </div>
+
+            <h3>Forward Migration</h3>
+            <p>seed diffs the new spec against the predecessor in <code>.seed/specs/</code> and emits <code>migration_from</code> + per-prefix <code>mapping_rules</code>. <code>--migrate auto</code> also submits <code>gbrain jobs submit unify-types</code>.</p>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash">seed export gbrain brain.seed --migrate prompt
+seed export gbrain brain.seed --migrate auto --migrate-from .seed/specs/v3.tree</code></pre>
+            </div>
+
+            <h3>Reverse Drift — <code>seed amend</code></h3>
+            <p>Fold filesystem drift (and optionally gbrain's active pack typing) back into the spec. Already-typed prefixes from <code>gbrain schema show --json</code> are not double-created. Ignored entries persist at <code>.seed/gbrain/ignore.yml</code>.</p>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash">seed amend brain.seed --from-fs --policy adopt --reexport
+seed amend brain.seed --from-gbrain --policy quarantine --quarantine-dir _inbox/
+seed amend brain.seed --dry-run --json</code></pre>
+            </div>
+
+            <h3>Maintenance Goal — <code>gbrain-sync</code></h3>
+            <p>The <code>gbrain-sync</code> goal in a <code>seed maintain</code> manifest exports → optionally migrates types → optionally syncs the brain.</p>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-yaml">targets:
+  - name: my-brain
+    kind: project
+    path: ./brains/my-brain
+    metadata:
+      gbrain:
+        spec: brain.seed
+        name: my-brain-pack
+        extends: gbrain-base
+        activate: repo          # repo|home|both|none
+        migrate: prompt         # off|prompt|auto
+        run_sync: true          # emit `gbrain sync`
+        # optional: kindmap, version_from
+    goals:
+      - gbrain-sync</code></pre>
+            </div>
+
+            <h3>Brain Hooks &amp; Watch</h3>
+            <p><code>hooks install --gbrain</code> writes <code>hooks/post_apply_gbrain.sh</code> and a <code>.git/hooks/pre-push</code> stale-pack guard. <code>specs watch --gbrain</code> re-exports the pack each time <code>.seed/specs/</code> advances.</p>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash">seed hooks install --gbrain --spec brain.seed --name my-brain --activate repo
+seed specs watch --gbrain --spec brain.seed --name my-brain --activate repo</code></pre>
+            </div>
+
+            <h3>Upstream PR Draft</h3>
+            <p>See <code>docs/gbrain/upstream-detect-pr.md</code> for the planned <code>gbrain schema detect</code> seed-spec provider — file-lookup order, kindmap-mirror strategy, tests, and risks.</p>
         </section>
 
         <!-- Lock & Versioning Tab -->
