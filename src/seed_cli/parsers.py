@@ -27,6 +27,7 @@ from .logging import get_logger
 from .schema import validate_document
 from .templating import apply_vars
 from .includes import resolve_includes
+from .conversion import expand_brace_paths
 
 log = get_logger("parsers")
 
@@ -322,79 +323,83 @@ def parse_tree_text(text: str, *args, **kwargs) -> List["Node"]:
         # Extract comment, annotation, optional marker, and metadata before processing name
         name, comment, annotation, is_optional, metadata = _extract_comment_and_annotation(name)
 
-        # Handle "..." marker for allowing extras in parent directory
-        if name == "..." or name == "…":
+        stack_before_expansion = list(stack)
+        for expanded_name in expand_brace_paths(name):
+            stack = list(stack_before_expansion)
+
+            # Handle "..." marker for allowing extras in parent directory
+            if expanded_name == "..." or expanded_name == "…":
+                depth = _tree_depth(prefix)
+                if not stack:
+                    stack = [Path(".")]
+                if depth + 1 <= len(stack):
+                    stack = stack[: depth + 1]
+                parent = stack[-1] if stack else Path(".")
+                # Create marker node: path is parent/..., annotation is "extras"
+                marker_path = (parent / "...").as_posix()
+                nodes.append(_make_node(
+                    rel=marker_path,
+                    is_dir=False,
+                    comment=comment,
+                    annotation="extras",
+                    metadata=metadata,
+                ))
+                continue
+
+            is_dir = expanded_name.endswith("/")
+            if is_dir:
+                expanded_name = expanded_name[:-1]
+
             depth = _tree_depth(prefix)
+
+            # Ensure stack has parent for this depth
             if not stack:
                 stack = [Path(".")]
+
+            # stack length should be depth+1 (root at 0)
+            # If we move up, truncate
             if depth + 1 <= len(stack):
                 stack = stack[: depth + 1]
+
             parent = stack[-1] if stack else Path(".")
-            # Create marker node: path is parent/..., annotation is "extras"
-            marker_path = (parent / "...").as_posix()
-            nodes.append(_make_node(
-                rel=marker_path,
-                is_dir=False,
-                comment=comment,
-                annotation="extras",
-                metadata=metadata,
-            ))
-            continue
 
-        is_dir = name.endswith("/")
-        if is_dir:
-            name = name[:-1]
+            # Check if this is a template variable directory like <version_id>
+            template_match = _TEMPLATE_VAR_RE.match(expanded_name)
+            if template_match and is_dir:
+                var_name = template_match.group(1)
+                # Keep the <varname> in the path for matching logic
+                path = (parent / expanded_name).as_posix()
+                nodes.append(_make_node(
+                    rel=path,
+                    is_dir=True,
+                    comment=comment,
+                    annotation=f"template:{var_name}",
+                    optional=is_optional,
+                    metadata=metadata,
+                ))
+                # Push to stack so children can reference this template path
+                while len(stack) <= depth + 1:
+                    stack.append(Path("."))
+                stack[depth + 1] = Path(path)
+                continue
 
-        depth = _tree_depth(prefix)
+            path = (parent / expanded_name).as_posix()
 
-        # Ensure stack has parent for this depth
-        if not stack:
-            stack = [Path(".")]
-
-        # stack length should be depth+1 (root at 0)
-        # If we move up, truncate
-        if depth + 1 <= len(stack):
-            stack = stack[: depth + 1]
-
-        parent = stack[-1] if stack else Path(".")
-
-        # Check if this is a template variable directory like <version_id>
-        template_match = _TEMPLATE_VAR_RE.match(name)
-        if template_match and is_dir:
-            var_name = template_match.group(1)
-            # Keep the <varname> in the path for matching logic
-            path = (parent / name).as_posix()
             nodes.append(_make_node(
                 rel=path,
-                is_dir=True,
+                is_dir=is_dir,
                 comment=comment,
-                annotation=f"template:{var_name}",
+                annotation=annotation,
                 optional=is_optional,
                 metadata=metadata,
             ))
-            # Push to stack so children can reference this template path
-            while len(stack) <= depth + 1:
-                stack.append(Path("."))
-            stack[depth + 1] = Path(path)
-            continue
 
-        path = (parent / name).as_posix()
-
-        nodes.append(_make_node(
-            rel=path,
-            is_dir=is_dir,
-            comment=comment,
-            annotation=annotation,
-            optional=is_optional,
-            metadata=metadata,
-        ))
-
-        if is_dir:
-            # push this dir as current at next depth
-            # Ensure stack is long enough
-            while len(stack) <= depth + 1:
-                stack.append(Path("."))
-            stack[depth + 1] = Path(path)
+            if is_dir:
+                # push this dir as current at next depth
+                # Ensure stack is long enough
+                while len(stack) <= depth + 1:
+                    stack.append(Path("."))
+                stack[depth + 1] = Path(path)
 
     return nodes
 

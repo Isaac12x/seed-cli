@@ -53,6 +53,79 @@ def test_parse_seed_inline_metadata():
     }
 
 
+def test_parse_seed_brace_group_with_shared_extension():
+    nodes = parse_tree_text("memories/{global,facts,episodes}.jsonl")
+
+    assert {n.relpath.as_posix() for n in nodes} == {
+        "memories/global.jsonl",
+        "memories/facts.jsonl",
+        "memories/episodes.jsonl",
+    }
+    assert all(not n.is_dir for n in nodes)
+
+
+def test_parse_seed_brace_group_with_mixed_files_and_directories():
+    nodes = parse_tree_text(
+        "services/<service-id>/{service.json,knowledge/,prompts/,tools.json}"
+    )
+
+    assert {(n.relpath.as_posix(), n.is_dir) for n in nodes} == {
+        ("services/<service-id>/service.json", False),
+        ("services/<service-id>/knowledge", True),
+        ("services/<service-id>/prompts", True),
+        ("services/<service-id>/tools.json", False),
+    }
+
+
+def test_parse_seed_multiple_brace_groups_as_cartesian_product():
+    nodes = parse_tree_text("{people,teams}/{active,archived}.json")
+
+    assert {n.relpath.as_posix() for n in nodes} == {
+        "people/active.json",
+        "people/archived.json",
+        "teams/active.json",
+        "teams/archived.json",
+    }
+
+
+def test_parse_seed_brace_group_strips_alternative_whitespace():
+    nodes = parse_tree_text("audit/{ billing_events, memory_writes }.jsonl")
+
+    assert {n.relpath.as_posix() for n in nodes} == {
+        "audit/billing_events.jsonl",
+        "audit/memory_writes.jsonl",
+    }
+
+
+def test_parse_seed_brace_group_inherits_inline_metadata():
+    nodes = parse_tree_text(
+        "vendor/{api,worker}/ !service +remote (@manual) (shared services)"
+    )
+
+    assert {n.relpath.as_posix() for n in nodes} == {
+        "vendor/api",
+        "vendor/worker",
+    }
+    assert all(n.is_dir for n in nodes)
+    assert all(n.annotation == "manual" for n in nodes)
+    assert all(n.comment == "shared services" for n in nodes)
+    assert all(n.metadata == {"kind": "service", "tags": ["remote"]} for n in nodes)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "literal/{name}.txt",
+        "literal/{left,right.txt",
+        "literal/left,right}.txt",
+    ],
+)
+def test_parse_seed_non_expandable_braces_remain_literal(text):
+    nodes = parse_tree_text(text)
+
+    assert [n.relpath.as_posix() for n in nodes] == [text]
+
+
 def test_parse_tree_skips_unicode_guides_and_preserves_at_prefixed_dirs():
     text = """
     .
