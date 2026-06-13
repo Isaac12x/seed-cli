@@ -905,7 +905,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="Utility functions",
     )
     utils_sub = sut.add_subparsers(dest="util_action", required=True, help="Utility action")
-    
+
+    # convert subcommand
+    convert = utils_sub.add_parser(
+        "convert",
+        description=(
+            "Convert a .tree spec to a compact declarative .seed spec. "
+            "When OUTPUT is omitted, use the INPUT path with the same stem "
+            "and a .seed suffix."
+        ),
+        help="Convert a .tree spec to a compact .seed spec",
+    )
+    convert.add_argument("input", metavar="INPUT", help="Input .tree file path")
+    convert.add_argument(
+        "output",
+        nargs="?",
+        metavar="OUTPUT",
+        help="Output .seed path (default: INPUT with the same stem)",
+    )
+
     # extract-tree subcommand
     extract_tree = utils_sub.add_parser(
         "extract-tree",
@@ -2176,6 +2194,17 @@ def _run(args) -> int:
     if args.cmd == "utils":
         from seed_cli.utils import extract_tree_from_image, has_image_support
 
+        if args.util_action == "convert":
+            from seed_cli.conversion import convert_tree_to_seed
+
+            try:
+                result_path = convert_tree_to_seed(args.input, args.output)
+                print(f"Converted {args.input} to {result_path}")
+                return 0
+            except (FileNotFoundError, ValueError) as e:
+                print(f"Error: {e}")
+                return 1
+
         if args.util_action == "extract-tree":
             # Check if image support is available
             if not has_image_support():
@@ -2301,6 +2330,7 @@ TEMPLATE_COMMAND_SECTIONS = (
 )
 
 UTILS_COMMAND_SECTIONS = (
+    CommandSection("Specs", ("convert",)),
     CommandSection("Images", ("extract-tree",)),
     CommandSection("State", ("state-lock",)),
 )
@@ -3052,6 +3082,27 @@ def utils_group(ctx):
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
         ctx.exit(1)
+
+
+@utils_group.command(
+    "convert",
+    help=(
+        "Convert a .tree spec to a compact declarative .seed spec. "
+        "Defaults to INPUT with the same stem and a .seed suffix."
+    ),
+)
+@click.argument("input_path", metavar="INPUT")
+@click.argument("output", required=False)
+@click.pass_context
+def utils_convert_command(ctx, input_path, output):
+    return _dispatch(
+        ctx,
+        "utils",
+        util_action="convert",
+        input=input_path,
+        output=output,
+        base=".",
+    )
 
 
 @utils_group.command("extract-tree", help="Extract tree structure from an image.")

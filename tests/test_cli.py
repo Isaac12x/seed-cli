@@ -255,6 +255,71 @@ def test_cli_state_lock_renew_no_lock(tmp_path):
     assert code in (0, 1)
 
 
+def test_cli_utils_convert_with_default_output_for_nested_input(tmp_path):
+    source = tmp_path / "specs" / "brain.tree"
+    source.parent.mkdir()
+    source.write_text(
+        "memories/global.jsonl\nmemories/facts.jsonl\n",
+        encoding="utf-8",
+    )
+
+    code, out, err = run(["utils", "convert", "specs/brain.tree"], tmp_path)
+
+    assert code == 0
+    output = tmp_path / "specs" / "brain.seed"
+    assert output.read_text(encoding="utf-8") == (
+        "memories/{facts,global}.jsonl\n"
+    )
+    assert "specs/brain.tree" in out
+    assert "specs/brain.seed" in out
+
+
+def test_cli_utils_convert_with_explicit_output(tmp_path):
+    source = tmp_path / "input.tree"
+    source.write_text("a.txt\nb.txt\n", encoding="utf-8")
+
+    code, out, err = run(
+        ["utils", "convert", "input.tree", "generated/output.seed"],
+        tmp_path,
+    )
+
+    assert code == 0
+    assert (tmp_path / "generated" / "output.seed").read_text(
+        encoding="utf-8"
+    ) == "{a,b}.txt\n"
+    assert "generated/output.seed" in out
+
+
+def test_cli_utils_convert_help(tmp_path):
+    code, out, err = run(["utils", "convert", "--help"], tmp_path)
+
+    assert code == 0
+    assert "INPUT" in out
+    assert "[OUTPUT]" in out
+    assert "same stem" in out
+
+
+def test_cli_utils_convert_reports_missing_input(tmp_path):
+    code, out, err = run(["utils", "convert", "missing.tree"], tmp_path)
+
+    assert code == 1
+    assert "Tree input file not found" in out
+    assert "Traceback" not in out
+
+
+def test_cli_utils_convert_argparse_parser():
+    from seed_cli.cli import build_parser
+
+    args = build_parser().parse_args(
+        ["utils", "convert", "input.tree", "output.seed"]
+    )
+
+    assert args.cmd == "utils"
+    assert args.util_action == "convert"
+    assert args.input == "input.tree"
+    assert args.output == "output.seed"
+
+
 def test_cli_hooks_install(tmp_path):
     import subprocess
     # Create a fake .git directory
@@ -305,7 +370,8 @@ def test_cli_diff_type_mismatch(tmp_path):
     code, out, err = run(["diff", "spec.tree"], tmp_path)
     assert code == 1
     # Should show type mismatch
-    assert "Type Mismatch" in out or "type_mismatch" in out.lower()
+    normalized_out = " ".join(out.split())
+    assert "Type Mismatch" in normalized_out or "type_mismatch" in out.lower()
 
 
 def test_cli_apply_plan_delete_with_dangerous(tmp_path):
