@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -12,7 +13,7 @@ import click
 
 from seed_cli import __version__
 from seed_cli.logging import setup_logging, get_logger
-from seed_cli.ui import Summary, render_summary, render_list, should_color
+from seed_cli.ui import Summary, render_summary, render_list, should_color, style_text
 from seed_cli.parsers import read_input, parse_any
 from seed_cli.includes import resolve_includes
 from seed_cli.templating import apply_vars
@@ -38,11 +39,13 @@ from seed_cli.project_templates import (
     complete_registered_project_template_names,
     complete_project_template_paths,
     iter_registered_project_template_dirs,
+    find_project_root,
     list_registered_project_templates,
     register_spec_project_templates,
     render_template_path,
     resolve_registered_project_template,
     resolve_project_template_path,
+    template_root_variable_names,
     template_variable_names,
 )
 from seed_cli.spec_formats import TREE_LIKE_SUFFIXES, strip_tree_like_suffix
@@ -103,10 +106,25 @@ def _single_template_var_name(spec_path: str, base: Path) -> str | None:
     from seed_cli.parsers import parse_spec
 
     _, nodes = parse_spec(spec_path, base=base)
-    names = sorted(template_variable_names(nodes))
+    names = sorted(template_root_variable_names(nodes))
     if len(names) == 1:
         return names[0]
     return None
+
+
+def _template_name_var_name(template_name: str) -> str | None:
+    """Return a variable-safe name derived from a template reference."""
+    path = Path(template_name)
+    if path.suffix.lower() in TREE_LIKE_SUFFIXES:
+        path = strip_tree_like_suffix(path)
+    name = path.name
+    if not name:
+        return None
+    if not (name[0].isalpha() or name[0] == "_"):
+        return None
+    if not all(ch.isalnum() or ch == "_" for ch in name):
+        return None
+    return name
 
 
 def _visible_project_templates(start: Path) -> list[tuple[str, Path]]:
@@ -135,12 +153,42 @@ def _visible_project_templates(start: Path) -> list[tuple[str, Path]]:
     return rows
 
 
+def _display_relative_path(path: Path, base: Path) -> str:
+    """Return a stable non-absolute path for terminal output."""
+    resolved = path.resolve()
+    roots = [find_project_root(base), base.resolve()]
+    for root in roots:
+        try:
+            return resolved.relative_to(root.resolve()).as_posix()
+        except ValueError:
+            continue
+    return Path(os.path.relpath(resolved, base.resolve())).as_posix()
+
+
+def _display_template_source(source: str, base: Path) -> str:
+    """Render local template sources without absolute paths."""
+    local_prefix = "local:"
+    if source.startswith(local_prefix):
+        raw_path = source[len(local_prefix):]
+        path = Path(raw_path).expanduser()
+        if path.is_absolute():
+            return f"{local_prefix}{_display_relative_path(path, base)}"
+        return f"{local_prefix}{Path(raw_path).as_posix()}"
+
+    path = Path(source).expanduser()
+    if path.is_absolute():
+        return _display_relative_path(path, base)
+
+    return source
+
+
 def _parse_vars_with_folder(
     *,
     spec_path: Path,
     base: Path,
     vars_values: list[str] | tuple[str, ...] | None,
     folder: str | None,
+    fallback_var_name: str | None = None,
 ) -> dict[str, str]:
     """Parse --vars and optional positional folder into template values."""
     parsed = parse_vars(list(vars_values or []))
@@ -154,9 +202,11 @@ def _parse_vars_with_folder(
 
     implicit_var_name = _single_template_var_name(str(spec_path), base)
     if not implicit_var_name:
+        implicit_var_name = fallback_var_name
+    if not implicit_var_name:
         raise ValueError(
             "Could not infer which template variable to populate. "
-            "Provide varname=value explicitly."
+            "Provide varname=value after the template name."
         )
     parsed.setdefault(implicit_var_name, folder)
     return parsed
@@ -1389,27 +1439,44 @@ def _run(args) -> int:
             project_templates = _visible_project_templates(base)
             templates = list_templates()
             if not project_templates and not templates:
-                print("No templates found.")
-                print("\nUse 'seed templates add <github_url>' to add a template.")
+                click.echo("No templates found.")
+                click.echo("\nUse 'seed templates add <github_url>' to add a template.")
                 return 0
 
             if project_templates:
-                print("Project templates:\n")
+                click.echo(style_text("Project templates:", "bold cyan", color=color))
+                click.echo()
                 for name, path in project_templates:
-                    print(f"  {name}")
-                    print(f"    Path: {path}")
-                print()
+                    click.echo(f"  {style_text(name, 'bold', color=color)}")
+                    rel_path = _display_relative_path(path, base)
+                    click.echo(
+                        f"    {style_text('Path:', 'dim', color=color)} {rel_path}"
+                    )
+                click.echo()
 
             if templates:
-                print("Stored templates:\n")
+                click.echo(style_text("Stored templates:", "bold cyan", color=color))
+                click.echo()
             for tmpl in templates:
-                locked_str = " [LOCKED]" if tmpl.locked else ""
-                print(f"  {tmpl.name}{locked_str}")
-                print(f"    Version: {tmpl.current_version} ({len(tmpl.versions)} total)")
-                print(f"    Source: {tmpl.source}")
+                locked_str = (
+                    style_text(" [LOCKED]", "bold yellow", color=color)
+                    if tmpl.locked
+                    else ""
+                )
+                click.echo(f"  {style_text(tmpl.name, 'bold', color=color)}{locked_str}")
+                click.echo(
+                    f"    {style_text('Version:', 'dim', color=color)} "
+                    f"{tmpl.current_version} ({len(tmpl.versions)} total)"
+                )
+                source = _display_template_source(tmpl.source, base)
+                click.echo(
+                    f"    {style_text('Source:', 'dim', color=color)} {source}"
+                )
                 created = datetime.fromtimestamp(tmpl.created_at).strftime("%Y-%m-%d %H:%M")
-                print(f"    Created: {created}")
-                print()
+                click.echo(
+                    f"    {style_text('Created:', 'dim', color=color)} {created}"
+                )
+                click.echo()
             return 0
 
         if action == "add":
@@ -1525,6 +1592,18 @@ def _run(args) -> int:
             unsafe = getattr(args, "unsafe", False)
             overwrite = getattr(args, "overwrite", False)
 
+            vars_values = list(getattr(args, "vars", []))
+            if folder is None and "=" in name and not version:
+                shorthand_name, _ = name.split("=", 1)
+                if shorthand_name:
+                    try:
+                        resolve_registered_project_template(shorthand_name, use_base)
+                    except FileNotFoundError:
+                        pass
+                    else:
+                        vars_values.append(name)
+                        name = shorthand_name
+
             # Get template spec path
             project_spec_path = None
             if not version:
@@ -1540,8 +1619,9 @@ def _run(args) -> int:
                     cli_vars = _parse_vars_with_folder(
                         spec_path=project_spec_path,
                         base=use_base,
-                        vars_values=getattr(args, "vars", []),
+                        vars_values=vars_values,
                         folder=folder,
+                        fallback_var_name=_template_name_var_name(name),
                     )
                     data_vars = load_data_file(data_file)
                     use_vars = resolve_template_vars(
@@ -1601,8 +1681,9 @@ def _run(args) -> int:
                 cli_vars = _parse_vars_with_folder(
                     spec_path=spec_path,
                     base=use_base,
-                    vars_values=getattr(args, "vars", []),
+                    vars_values=vars_values,
                     folder=folder,
+                    fallback_var_name=_template_name_var_name(name),
                 )
                 content_dir = get_template_content_dir(name, version)
                 config_path = get_template_config_path(name, version)
