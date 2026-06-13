@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [1.0.11] - 2026-06-07
+
+### Changed
+- Split PyPI publishing into the release/manual-dispatch workflow using the configured PyPI API token, while pushing a `v*` tag builds and attaches distributions to the GitHub release.
+- Updated the package version and website release callout for `v1.0.11`.
+
+## [1.0.10] - 2026-06-01
+
 ### Added
 - Added a Click-based CLI command tree with `-h/--help`, built-in shell completion support, and a singular `seed template ...` alias for `seed templates ...`.
 - Added `seed templates use <name> <folder>` positional folder support for single-placeholder templates.
