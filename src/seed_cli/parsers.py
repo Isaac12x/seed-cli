@@ -273,7 +273,7 @@ def parse_spec(
     return parse_any(spec_path, text, vars=vars, base=base, mode=mode)
 
 
-_TEMPLATE_VAR_RE = re.compile(r"^<([a-zA-Z_][a-zA-Z0-9_]*)>$")
+_TEMPLATE_VAR_RE = re.compile(r"^<([a-zA-Z_][a-zA-Z0-9_-]*)>$")
 
 
 def parse_tree_text(text: str, *args, **kwargs) -> List["Node"]:
@@ -292,7 +292,8 @@ def parse_tree_text(text: str, *args, **kwargs) -> List["Node"]:
     # stack[depth] = path at that depth
     stack: List[Path] = []
 
-    for raw in text.splitlines():
+    raw_lines = text.splitlines()
+    for line_index, raw in enumerate(raw_lines):
         line = raw.rstrip()
         stripped = line.strip()
         if not line:
@@ -303,7 +304,23 @@ def parse_tree_text(text: str, *args, **kwargs) -> List["Node"]:
             nodes.append(_make_node(rel=".", is_dir=True))
             stack = [Path(".")]
             continue
-        if stripped.endswith("/") and ("├──" not in stripped and "└──" not in stripped):
+        next_content_line = next(
+            (
+                candidate.strip()
+                for candidate in raw_lines[line_index + 1 :]
+                if candidate.strip()
+            ),
+            "",
+        )
+        has_branch_children = (
+            "├──" in next_content_line or "└──" in next_content_line
+        )
+        if (
+            stripped.endswith("/")
+            and "├──" not in stripped
+            and "└──" not in stripped
+            and has_branch_children
+        ):
             # Create explicit root node as "."
             nodes.append(_make_node(rel=".", is_dir=True))
             stack = [Path(".")]
@@ -364,7 +381,7 @@ def parse_tree_text(text: str, *args, **kwargs) -> List["Node"]:
             parent = stack[-1] if stack else Path(".")
 
             # Check if this is a template variable directory like <version_id>
-            template_match = _TEMPLATE_VAR_RE.match(expanded_name)
+            template_match = _TEMPLATE_VAR_RE.match(Path(expanded_name).name)
             if template_match and is_dir:
                 var_name = template_match.group(1)
                 # Keep the <varname> in the path for matching logic

@@ -77,6 +77,16 @@ def test_parse_seed_brace_group_with_mixed_files_and_directories():
     }
 
 
+def test_parse_seed_brace_group_with_directory_suffix():
+    nodes = parse_tree_text("common/global/{knowledge,policies,prompts}/")
+
+    assert {(n.relpath.as_posix(), n.is_dir) for n in nodes} == {
+        ("common/global/knowledge", True),
+        ("common/global/policies", True),
+        ("common/global/prompts", True),
+    }
+
+
 def test_parse_seed_multiple_brace_groups_as_cartesian_product():
     nodes = parse_tree_text("{people,teams}/{active,archived}.json")
 
@@ -110,6 +120,15 @@ def test_parse_seed_brace_group_inherits_inline_metadata():
     assert all(n.annotation == "manual" for n in nodes)
     assert all(n.comment == "shared services" for n in nodes)
     assert all(n.metadata == {"kind": "service", "tags": ["remote"]} for n in nodes)
+
+
+def test_parse_seed_nested_template_directory_path():
+    nodes = parse_tree_text("services/<service-id>/")
+
+    assert len(nodes) == 1
+    assert nodes[0].relpath.as_posix() == "services/<service-id>"
+    assert nodes[0].is_dir
+    assert nodes[0].annotation == "template:service-id"
 
 
 @pytest.mark.parametrize(
