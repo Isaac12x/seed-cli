@@ -158,6 +158,21 @@ vendor/
 Structured YAML and JSON specs can also carry metadata with either a
 `metadata` object or top-level `kind`, `tags`, and `url` fields.
 
+### Compact Brace Groups
+
+Declarative `.seed` specs can collapse sibling paths into comma-separated
+brace groups. Groups are expanded by every spec-consuming command:
+
+```text
+common/global/{knowledge,policies,prompts}/
+memories/{global,facts,episodes,preferences}.jsonl
+services/<service-id>/{service.json,knowledge/,prompts/,tools.json}
+```
+
+Multiple groups in one path expand as a Cartesian product. Whitespace around
+alternatives is ignored, while unmatched braces and braces without commas
+remain literal path text.
+
 ### Variable Usage
 
 ```bash
@@ -543,10 +558,16 @@ seed hooks install --gbrain --spec brain.seed --name my-brain
 Utilities:
 
 ```bash
+seed utils convert project.tree
+seed utils convert path/to/project.tree generated/project.seed
+seed utils convert --help
 seed utils extract-tree screenshot.png --out spec.tree
 seed utils state-lock
 seed utils state-lock --force-unlock
 ```
+
+`seed utils convert` writes a compact declarative `.seed` spec. If the output
+is omitted, it uses the input path with the same stem and a `.seed` suffix.
 
 ## Shell Autocomplete
 
