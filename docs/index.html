@@ -790,6 +790,7 @@ memories/{global,facts,episodes,preferences}.jsonl
 services/&lt;service-id&gt;/{service.json,knowledge/,prompts/,tools.json}</code></pre>
             </div>
             <p>Multiple groups in one path expand as a Cartesian product. Whitespace around alternatives is ignored; unmatched braces and braces without commas remain literal path text.</p>
+            <p>Use <code>seed utils collapse INPUT [OUTPUT]</code> to compact an existing <code>.tree</code> or <code>.seed</code> file for sharing. Without an output path, the compact spec is printed to stdout.</p>
 
             <h3>Template Variables</h3>
             <p>Create reusable specs with dynamic values:</p>
@@ -1265,6 +1266,22 @@ seed hooks install --hook pre-push</code></pre>
             <hr>
 
             <h3>Utils</h3>
+
+            <div class="command-card">
+                <h4>seed utils collapse &lt;input&gt; [output]</h4>
+                <p>Collapse an existing <code>.tree</code> or <code>.seed</code> spec into compact brace groups. Without an output path, the result is printed to stdout for easy sharing; an optional output writes a compact <code>.tree</code> or <code>.seed</code> file.</p>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash"># Print compact output for sharing
+seed utils collapse project.seed
+
+# Write a compact file
+seed utils collapse project.tree shared/project.tree
+
+# Show command help
+seed utils collapse --help</code></pre>
+            </div>
 
             <div class="command-card">
                 <h4>seed utils convert &lt;input.tree&gt; [output.seed]</h4>

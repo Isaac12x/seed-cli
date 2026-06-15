@@ -4,6 +4,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 
 def project_version() -> str:
     pyproject_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
@@ -317,6 +319,68 @@ def test_cli_utils_convert_argparse_parser():
     assert args.cmd == "utils"
     assert args.util_action == "convert"
     assert args.input == "input.tree"
+    assert args.output == "output.seed"
+
+
+@pytest.mark.parametrize("suffix", [".tree", ".seed"])
+def test_cli_utils_collapse_prints_compact_spec_to_stdout(tmp_path, suffix):
+    source = tmp_path / f"brain{suffix}"
+    source.write_text(
+        "memories/global.jsonl\n"
+        "memories/facts.jsonl\n"
+        "memories/episodes.jsonl\n",
+        encoding="utf-8",
+    )
+
+    code, out, err = run(["utils", "collapse", source.name], tmp_path)
+
+    assert code == 0
+    assert out == "memories/{episodes,facts,global}.jsonl\n"
+
+
+def test_cli_utils_collapse_writes_explicit_output(tmp_path):
+    source = tmp_path / "brain.seed"
+    source.write_text("a.txt\nb.txt\n", encoding="utf-8")
+
+    code, out, err = run(
+        ["utils", "collapse", "brain.seed", "shared/brain.seed"],
+        tmp_path,
+    )
+
+    assert code == 0
+    assert (tmp_path / "shared" / "brain.seed").read_text(
+        encoding="utf-8"
+    ) == "{a,b}.txt\n"
+    assert "Collapsed brain.seed to shared/brain.seed" in out
+
+
+def test_cli_utils_collapse_help(tmp_path):
+    code, out, err = run(["utils", "collapse", "--help"], tmp_path)
+
+    assert code == 0
+    assert "INPUT [OUTPUT]" in out
+    assert "stdout" in out
+    assert ".tree or .seed" in out
+
+
+def test_cli_utils_collapse_reports_missing_input(tmp_path):
+    code, out, err = run(["utils", "collapse", "missing.seed"], tmp_path)
+
+    assert code == 1
+    assert "Spec input file not found" in out
+    assert "Traceback" not in out
+
+
+def test_cli_utils_collapse_argparse_parser():
+    from seed_cli.cli import build_parser
+
+    args = build_parser().parse_args(
+        ["utils", "collapse", "input.seed", "output.seed"]
+    )
+
+    assert args.cmd == "utils"
+    assert args.util_action == "collapse"
+    assert args.input == "input.seed"
     assert args.output == "output.seed"
 
 

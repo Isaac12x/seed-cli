@@ -7,6 +7,10 @@ spec into a deterministic, compact, declarative `.seed` spec. When `OUTPUT` is
 omitted, the output is written beside the input using the same stem and a
 `.seed` suffix.
 
+Add `seed utils collapse INPUT [OUTPUT]` to compact an existing `.tree` or
+`.seed` spec for sharing. When `OUTPUT` is omitted, the compact form is printed
+to stdout; otherwise it is written to the requested `.tree` or `.seed` path.
+
 Collapsed brace expressions are first-class `.seed` syntax. Every expression
 emitted by the converter must be accepted by the normal Seed parser, so the
 result works with `plan`, `apply`, `diff`, templates, and other spec consumers.

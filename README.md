@@ -173,6 +173,16 @@ Multiple groups in one path expand as a Cartesian product. Whitespace around
 alternatives is ignored, while unmatched braces and braces without commas
 remain literal path text.
 
+Use `seed utils collapse` to compact an existing `.tree` or `.seed` file for
+sharing:
+
+```bash
+seed utils collapse project.seed
+seed utils collapse project.tree shared/project.tree
+```
+
+Without an output path, the compact spec is printed to stdout.
+
 ### Variable Usage
 
 ```bash
@@ -558,6 +568,9 @@ seed hooks install --gbrain --spec brain.seed --name my-brain
 Utilities:
 
 ```bash
+seed utils collapse project.seed
+seed utils collapse project.tree shared/project.tree
+seed utils collapse --help
 seed utils convert project.tree
 seed utils convert path/to/project.tree generated/project.seed
 seed utils convert --help
@@ -565,6 +578,10 @@ seed utils extract-tree screenshot.png --out spec.tree
 seed utils state-lock
 seed utils state-lock --force-unlock
 ```
+
+`seed utils collapse` accepts `.tree` and `.seed` input. It prints the compact
+spec to stdout by default, or writes it to an optional `.tree`/`.seed` output
+path.
 
 `seed utils convert` writes a compact declarative `.seed` spec. If the output
 is omitted, it uses the input path with the same stem and a `.seed` suffix.

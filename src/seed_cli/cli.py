@@ -906,6 +906,27 @@ def build_parser() -> argparse.ArgumentParser:
     )
     utils_sub = sut.add_subparsers(dest="util_action", required=True, help="Utility action")
 
+    # collapse subcommand
+    collapse = utils_sub.add_parser(
+        "collapse",
+        description=(
+            "Collapse a .tree or .seed spec into compact brace groups. "
+            "Print to stdout when OUTPUT is omitted."
+        ),
+        help="Collapse a .tree or .seed spec",
+    )
+    collapse.add_argument(
+        "input",
+        metavar="INPUT",
+        help="Input .tree or .seed file path",
+    )
+    collapse.add_argument(
+        "output",
+        nargs="?",
+        metavar="OUTPUT",
+        help="Optional .tree or .seed output path (default: stdout)",
+    )
+
     # convert subcommand
     convert = utils_sub.add_parser(
         "convert",
@@ -2194,6 +2215,20 @@ def _run(args) -> int:
     if args.cmd == "utils":
         from seed_cli.utils import extract_tree_from_image, has_image_support
 
+        if args.util_action == "collapse":
+            from seed_cli.conversion import collapse_spec
+
+            try:
+                rendered = collapse_spec(args.input, args.output)
+                if args.output:
+                    print(f"Collapsed {args.input} to {args.output}")
+                else:
+                    print(rendered, end="")
+                return 0
+            except (FileNotFoundError, ValueError) as e:
+                print(f"Error: {e}")
+                return 1
+
         if args.util_action == "convert":
             from seed_cli.conversion import convert_tree_to_seed
 
@@ -2330,7 +2365,7 @@ TEMPLATE_COMMAND_SECTIONS = (
 )
 
 UTILS_COMMAND_SECTIONS = (
-    CommandSection("Specs", ("convert",)),
+    CommandSection("Specs", ("collapse", "convert")),
     CommandSection("Images", ("extract-tree",)),
     CommandSection("State", ("state-lock",)),
 )
@@ -3082,6 +3117,27 @@ def utils_group(ctx):
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
         ctx.exit(1)
+
+
+@utils_group.command(
+    "collapse",
+    help=(
+        "Collapse a .tree or .seed spec into brace groups. "
+        "Prints to stdout unless OUTPUT is provided."
+    ),
+)
+@click.argument("input_path", metavar="INPUT")
+@click.argument("output", required=False)
+@click.pass_context
+def utils_collapse_command(ctx, input_path, output):
+    return _dispatch(
+        ctx,
+        "utils",
+        util_action="collapse",
+        input=input_path,
+        output=output,
+        base=".",
+    )
 
 
 @utils_group.command(

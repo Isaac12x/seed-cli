@@ -309,3 +309,45 @@ def test_convert_tree_to_seed_rejects_non_seed_output(tmp_path):
 
     with pytest.raises(ValueError, match=r"must use the \.seed suffix"):
         conversion.convert_tree_to_seed(source, tmp_path / "brain.txt")
+
+
+@pytest.mark.parametrize("suffix", [".tree", ".seed"])
+def test_collapse_spec_accepts_tree_and_seed_files(tmp_path, suffix):
+    source = tmp_path / f"brain{suffix}"
+    source.write_text(
+        "memories/global.jsonl\n"
+        "memories/facts.jsonl\n"
+        "memories/episodes.jsonl\n",
+        encoding="utf-8",
+    )
+
+    assert conversion.collapse_spec(source) == (
+        "memories/{episodes,facts,global}.jsonl\n"
+    )
+
+
+def test_collapse_spec_writes_explicit_tree_or_seed_output(tmp_path):
+    source = tmp_path / "brain.seed"
+    output = tmp_path / "shared" / "brain.tree"
+    source.write_text("a.txt\nb.txt\n", encoding="utf-8")
+
+    rendered = conversion.collapse_spec(source, output)
+
+    assert rendered == "{a,b}.txt\n"
+    assert output.read_text(encoding="utf-8") == rendered
+
+
+def test_collapse_spec_rejects_non_tree_like_input(tmp_path):
+    source = tmp_path / "brain.txt"
+    source.write_text("a.txt\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"must use a \.tree or \.seed suffix"):
+        conversion.collapse_spec(source)
+
+
+def test_collapse_spec_rejects_non_tree_like_output(tmp_path):
+    source = tmp_path / "brain.seed"
+    source.write_text("a.txt\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"must use a \.tree or \.seed suffix"):
+        conversion.collapse_spec(source, tmp_path / "brain.txt")

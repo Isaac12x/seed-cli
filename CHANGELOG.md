@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 - Added `seed utils convert INPUT.tree [OUTPUT.seed]` with same-stem default output naming, nested path support, explicit output directories, and command help.
+- Added `seed utils collapse INPUT [OUTPUT]` for compacting existing `.tree` or `.seed` specs to stdout or an optional output file for easier sharing.
 - Added first-class compact brace groups for declarative `.seed` specs, including shared extensions, directory groups, mixed file/directory groups, multiple-group expansion, and nested template placeholders.
 
 ### Changed
@@ -13,7 +14,7 @@ All notable changes to this project are documented in this file.
 - Made standalone directory path lines parse as declarative entries while retaining ASCII tree root-label behavior.
 
 ### Tests
-- Added parser, conversion, round-trip, requested-hierarchy, CLI, error handling, and help regression coverage for compact `.seed` conversion.
+- Added parser, conversion, collapse, round-trip, requested-hierarchy, CLI, error handling, and help regression coverage for compact specs.
 
 ## [1.0.12] - 2026-06-13
 

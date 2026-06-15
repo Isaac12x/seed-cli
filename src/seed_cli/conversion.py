@@ -260,6 +260,42 @@ def render_compact_seed(nodes: Iterable["Node"]) -> str:
     return "\n".join(sorted(lines)) + "\n"
 
 
+def collapse_spec(
+    input_path: Path | str,
+    output_path: Path | str | None = None,
+) -> str:
+    """Collapse a .tree or .seed file and optionally write the result."""
+    from .parsers import parse_spec
+
+    source = Path(input_path)
+    if source.suffix.lower() not in {".tree", ".seed"}:
+        raise ValueError(
+            f"Spec input path must use a .tree or .seed suffix: {source}"
+        )
+    if not source.exists():
+        raise FileNotFoundError(f"Spec input file not found: {source}")
+    if not source.is_file():
+        raise ValueError(f"Spec input path must be a file: {source}")
+
+    destination = Path(output_path) if output_path is not None else None
+    if destination is not None and destination.suffix.lower() not in {
+        ".tree",
+        ".seed",
+    }:
+        raise ValueError(
+            f"Spec output path must use a .tree or .seed suffix: {destination}"
+        )
+
+    _, nodes = parse_spec(str(source), base=source.parent)
+    rendered = render_compact_seed(nodes)
+
+    if destination is not None:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(rendered, encoding="utf-8")
+
+    return rendered
+
+
 def convert_tree_to_seed(
     input_path: Path | str,
     output_path: Path | str | None = None,
