@@ -84,6 +84,7 @@ Framework maintainers can inspect the recommended integration contract with:
 ```bash
 seed agents --json
 seed agents --framework codex --json
+seed mcp
 ```
 
 See [docs/agents.md](docs/agents.md) for OpenHands, Codex, Claude Code, Aider,
@@ -100,7 +101,7 @@ Cline, Roo Code, Continue, and Goose adoption guidance.
 | State & History | `import`, `capture`, `revert`, `specs`, `lock` | Capture state, recover snapshots, inspect history, and enforce structure versions |
 | Maintenance | `validate`, `repair`, `doctor`, `maintain`, `hooks` | Lint specs, run repository/service maintenance, and install hooks |
 | GBrain | `export gbrain`, `amend`, `specs watch --gbrain`, `hooks install --gbrain` | Compile a brain pack from a `.seed` spec, reconcile drift, and wire up brain hooks |
-| Export & Utilities | `graph`, `export`, `agents`, `utils` | Export trees/plans/DOT output, agent metadata, and helper tools |
+| Export & Utilities | `graph`, `export`, `agents`, `mcp`, `utils` | Export trees/plans/DOT output, agent metadata, MCP tools, and helper tools |
 
 ## Core Workflow
 

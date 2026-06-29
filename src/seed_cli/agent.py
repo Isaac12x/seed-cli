@@ -31,6 +31,7 @@ CAPABILITIES = [
     "drift_detection",
     "safe_prune",
     "json_cli",
+    "mcp_server",
 ]
 
 EXIT_CODES = {
@@ -137,6 +138,7 @@ def agent_manifest() -> dict[str, Any]:
         },
         "machine_interface": {
             "json": True,
+            "mcp_stdio": "seed mcp",
             "primary_plan": "seed plan filesystem.tree --json",
             "primary_check": "seed check filesystem.tree --json",
         },

@@ -10,6 +10,8 @@ def test_agent_manifest_names_target_frameworks():
 
     assert manifest["tool"] == "seed"
     assert "filesystem_state_management" in manifest["capabilities"]
+    assert "mcp_server" in manifest["capabilities"]
+    assert manifest["machine_interface"]["mcp_stdio"] == "seed mcp"
     for framework in [
         "OpenHands",
         "Codex",

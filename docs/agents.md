@@ -75,3 +75,19 @@ seed agents --framework goose
 
 Each framework pack includes an install command, maintainer pitch, default
 instruction text, recommended commands, and safety notes.
+
+## MCP Server
+
+Frameworks with Model Context Protocol support can use seed without shell
+parsing by starting the stdio server:
+
+```bash
+seed mcp
+```
+
+The server exposes:
+
+- `seed_plan`: returns structured drift and plan data.
+- `seed_check`: returns structured match/drift status.
+- `seed_apply`: applies safe additions by default; deletion requires
+  `prune: true`.

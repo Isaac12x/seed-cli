@@ -285,6 +285,7 @@ def test_cli_help_groups_top_level_commands(tmp_path):
 
     assert "templates  Manage reusable templates. (alias: template)" in out
     assert "template   Manage reusable templates." not in out
+    assert "mcp" in out
     assert out.index("Plan & Apply:") < out.index("Templates:")
     assert out.index("Templates:") < out.index("State & History:")
 
@@ -341,6 +342,7 @@ def test_build_parser_knows_agent_first_commands():
     plan_args = parser.parse_args(["plan", "filesystem.tree", "--json"])
     sync_args = parser.parse_args(["sync", "filesystem.tree", "--prune"])
     agents_args = parser.parse_args(["agents", "--json"])
+    mcp_args = parser.parse_args(["mcp"])
 
     assert plan_args.cmd == "plan"
     assert plan_args.json is True
@@ -348,6 +350,7 @@ def test_build_parser_knows_agent_first_commands():
     assert sync_args.prune is True
     assert agents_args.cmd == "agents"
     assert agents_args.json is True
+    assert mcp_args.cmd == "mcp"
 
 
 def test_cli_export_tree(tmp_path):

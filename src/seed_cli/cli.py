@@ -749,6 +749,13 @@ def build_parser() -> argparse.ArgumentParser:
     sagents.add_argument("--format", choices=["markdown", "json"], default="markdown")
     sagents.add_argument("--json", action="store_true", help="Output in JSON format")
 
+    # mcp
+    sub.add_parser(
+        "mcp",
+        description="Run the seed Model Context Protocol stdio server",
+        help="Run MCP stdio server",
+    )
+
     # export
     se = sub.add_parser(
         "export",
@@ -1760,6 +1767,12 @@ def _run(args) -> int:
             return 1
         return 0
 
+    # ---------------- MCP ----------------
+    if args.cmd == "mcp":
+        from seed_cli.mcp import run_stdio
+
+        return run_stdio()
+
     # ---------------- SPECS ----------------
     if args.cmd == "specs":
         from seed_cli.spec_history import (
@@ -2658,7 +2671,7 @@ ROOT_COMMAND_SECTIONS = (
     CommandSection("Templates", ("register", "create", "templates")),
     CommandSection("State & History", ("import", "capture", "revert", "specs", "lock")),
     CommandSection("Maintenance", ("validate", "repair", "doctor", "maintain", "hooks")),
-    CommandSection("Export & Utilities", ("graph", "export", "agents", "utils")),
+    CommandSection("Export & Utilities", ("graph", "export", "agents", "mcp", "utils")),
 )
 
 LOCK_COMMAND_SECTIONS = (
@@ -3148,6 +3161,12 @@ def graph_command(ctx, spec, base, vars_, format_, json_):
 @click.pass_context
 def agents_command(ctx, framework, format_, json_):
     return _dispatch(ctx, "agents", framework=framework, format=format_, json=json_)
+
+
+@click_cli.command("mcp", help="Run the seed MCP stdio server.")
+@click.pass_context
+def mcp_command(ctx):
+    return _dispatch(ctx, "mcp")
 
 
 @click_cli.command(
