@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [1.0.13] - 2026-06-29
+
 ### Added
 - Added PRD-aligned agent-first CLI surfaces: `seed init`, `seed import`, `seed check`, `seed validate`, `seed repair`, `seed graph`, core `--json` output, and explicit `--prune` deletion spelling.
 - Added `seed agents` and `docs/agents.md` to expose an adoption manifest plus framework-specific integration packs for OpenHands, Codex, Claude Code, Aider, Cline, Roo Code, Continue, and Goose.

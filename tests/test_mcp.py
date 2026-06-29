@@ -2,6 +2,7 @@ import json
 from io import StringIO
 from pathlib import Path
 
+import seed_cli
 from seed_cli.mcp import handle_message, run_stdio
 
 
@@ -18,6 +19,7 @@ def test_mcp_initialize_reports_tools_capability():
     assert response["jsonrpc"] == "2.0"
     assert response["id"] == 1
     assert response["result"]["serverInfo"]["name"] == "seed-cli"
+    assert response["result"]["serverInfo"]["version"] == seed_cli.get_version()
     assert response["result"]["capabilities"]["tools"] == {}
 
 

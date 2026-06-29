@@ -392,6 +392,7 @@
             <button data-tab="sync">Sync & Match</button>
             <button data-tab="syntax">Spec Syntax</button>
             <button data-tab="templates">Templates</button>
+            <button data-tab="agents">Agents</button>
             <button data-tab="gbrain">GBrain</button>
             <button data-tab="lock">Versioning</button>
             <button data-tab="snapshots">Snapshots</button>
@@ -421,6 +422,10 @@
                     <p>Plan or execute repository, service, and system upkeep from manifests.</p>
                 </div>
                 <div class="feature">
+                    <h4>Agent Workflows</h4>
+                    <p>Expose deterministic plan, check, apply, and MCP surfaces for coding agents.</p>
+                </div>
+                <div class="feature">
                     <h4>History & Locks</h4>
                     <p>Snapshots, spec history, structure locking, and state locks keep changes auditable.</p>
                 </div>
@@ -431,12 +436,12 @@
             </div>
 
             <div class="release-note">
-                <h3>Latest Release: <a href="https://github.com/Isaac12x/seed-cli/releases/tag/v1.0.12">v1.0.12</a></h3>
-                <p class="release-meta">Released June 13, 2026</p>
+                <h3>Latest Release: <a href="https://github.com/Isaac12x/seed-cli/releases/tag/v1.0.13">v1.0.13</a></h3>
+                <p class="release-meta">Released June 29, 2026</p>
                 <ul>
-                    <li>Compile <code>.seed</code> specs into GBrain schema packs and keep them synchronized with hooks, watch mode, and maintenance goals.</li>
-                    <li>Reconcile filesystem and GBrain drift with <code>seed amend</code>, including adopt, ignore, and quarantine policies.</li>
-                    <li>Use nested and path-scoped project templates with improved variable inference and shorthand syntax.</li>
+                    <li>Use agent-first filesystem commands: <code>seed init</code>, <code>seed import</code>, <code>seed check</code>, <code>seed validate</code>, <code>seed repair</code>, and <code>seed graph</code>.</li>
+                    <li>Inspect framework integration packs with <code>seed agents</code> for OpenHands, Codex, Claude Code, Aider, Cline, Roo Code, Continue, and Goose.</li>
+                    <li>Run <code>seed mcp</code> to expose <code>seed_plan</code>, <code>seed_check</code>, and <code>seed_apply</code> over stdio MCP.</li>
                 </ul>
             </div>
 
@@ -472,7 +477,16 @@ seed plan project.tree --out plan.json</code></pre>
 seed maintain maintenance.yml --execute</code></pre>
             </div>
 
-            <h3>5. Compile a brain pack (gbrain)</h3>
+            <h3>5. Give agents a filesystem contract</h3>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash">seed init
+seed import . --out filesystem.tree
+seed plan filesystem.tree --json
+seed check filesystem.tree --json</code></pre>
+            </div>
+
+            <h3>6. Compile a brain pack (gbrain)</h3>
             <div class="code-block">
                 <button class="copy-btn">Copy</button>
                 <pre><code class="language-bash">seed export gbrain brain.seed --install --activate repo
@@ -529,6 +543,7 @@ seed plan project.tree --dot > plan.dot</code></pre>
                 <div class="options">
                     <code>--base BASE</code> base directory (default: current directory)<br>
                     <code>--dangerous</code> allow dangerous plan steps when needed<br>
+                    <code>--prune</code> delete extras only when pruning is explicit<br>
                     <code>--dry-run</code> preview execution without writes<br>
                     <code>--yes, -y</code> create all optional items<br>
                     <code>--skip-optional</code> skip all optional items
@@ -539,7 +554,41 @@ seed plan project.tree --dot > plan.dot</code></pre>
                 <pre><code class="language-bash">seed apply project.tree
 seed apply plan.json
 seed apply project.tree --base ./myproject
-seed apply project.tree --dry-run</code></pre>
+seed apply project.tree --dry-run
+seed apply filesystem.tree --prune</code></pre>
+            </div>
+
+            <div class="command-card">
+                <h4>seed init | import | check</h4>
+                <p>Create a default <code>filesystem.tree</code>, capture the current repository structure, and return CI-friendly drift status for agent workflows.</p>
+                <div class="options">
+                    <code>seed init</code> writes a starter filesystem contract<br>
+                    <code>seed import . --out filesystem.tree</code> captures the current tree<br>
+                    <code>seed check filesystem.tree --json</code> returns exit code <code>2</code> when drift is detected
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash">seed init
+seed import . --out filesystem.tree
+seed check filesystem.tree --json</code></pre>
+            </div>
+
+            <div class="command-card">
+                <h4>seed agents | mcp</h4>
+                <p>Print framework adoption metadata or start the dependency-light stdio MCP server with <code>seed_plan</code>, <code>seed_check</code>, and <code>seed_apply</code> tools.</p>
+                <div class="options">
+                    <code>--framework NAME</code> tailor an integration pack for a supported framework<br>
+                    <code>--format proposal</code> generate upstream-ready issue or PR text<br>
+                    <code>seed mcp</code> speaks JSON-RPC over stdio for MCP hosts
+                </div>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash">seed agents --json
+seed agents --framework codex --json
+seed agents --framework codex --format proposal
+seed mcp</code></pre>
             </div>
 
             <div class="command-card">
@@ -672,14 +721,15 @@ seed amend brain.seed --dry-run --json</code></pre>
         <!-- Sync & Match Tab -->
         <section id="sync" class="tab-content">
             <h2>Sync & Match</h2>
-            <p>These commands modify the filesystem to match your spec exactly, including deleting extra files. Use with caution.</p>
+            <p>These commands modify the filesystem to match your spec. Deleting extras is explicit: use <code>--prune</code> for sync or <code>--dangerous</code> for the legacy exact-match flows.</p>
 
             <div class="command-card">
                 <h4>seed sync &lt;spec&gt; <span class="badge danger">dangerous</span></h4>
-                <p>Same as apply, but also deletes extraneous files. Plugins may veto deletions. Requires <code>--dangerous</code> flag.</p>
+                <p>Same as apply, but also deletes extraneous files when pruning is explicit. Plugins may veto deletions. Requires <code>--prune</code> or <code>--dangerous</code> unless running a dry run.</p>
                 <div class="options">
                     <code>--base BASE</code> Base directory (default: current directory)<br>
-                    <code>--dangerous</code> Required flag to enable sync (not required with --dry-run)<br>
+                    <code>--prune</code> Explicitly remove paths not present in the spec<br>
+                    <code>--dangerous</code> Legacy deletion gate (not required with --prune or --dry-run)<br>
                     <code>--dry-run</code> Show what would be executed without making changes<br>
                     <code>--yes, -y</code> Create all optional items (marked with ?) without prompting<br>
                     <code>--skip-optional</code> Skip all optional items (marked with ?) without prompting
@@ -690,11 +740,11 @@ seed amend brain.seed --dry-run --json</code></pre>
                 <pre><code class="language-bash"># Preview what would be synced
 seed sync project.tree --dry-run
 
-# Actually sync (deletes extra files!)
-seed sync project.tree --dangerous
+# Sync and delete extra files explicitly
+seed sync project.tree --prune
 
 # Sync with auto-create optionals
-seed sync project.tree --dangerous --yes</code></pre>
+seed sync project.tree --prune --yes</code></pre>
             </div>
 
             <div class="command-card">
@@ -912,6 +962,57 @@ seed create --project version_id version_id=v3</code></pre>
 
             <h3>Copier-Style Config</h3>
             <p>Template configs are discovered from <code>copier.yml</code>, <code>copier.yaml</code>, <code>.seed-template.yml</code>, or <code>.seed-template.yaml</code>. seed understands question defaults, choices, <code>_exclude</code>, <code>_skip_if_exists</code>, <code>_answers_file</code>, and <code>_tasks</code>.</p>
+        </section>
+
+        <!-- Agents Tab -->
+        <section id="agents" class="tab-content">
+            <h2>Agent Frameworks</h2>
+            <p>Use seed as a deterministic filesystem state layer for coding agents. A <code>filesystem.tree</code> file becomes the repository structure contract, while JSON output gives agents and CI a stable drift signal.</p>
+
+            <h3>Machine Contract</h3>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash">seed init
+seed import . --out filesystem.tree
+seed plan filesystem.tree --json
+seed apply filesystem.tree
+seed check filesystem.tree --json
+seed sync filesystem.tree --prune</code></pre>
+            </div>
+
+            <h3>Framework Packs</h3>
+            <p><code>seed agents</code> emits capabilities, recommended commands, exit codes, and safety notes for OpenHands, Codex, Claude Code, Aider, Cline, Roo Code, Continue, and Goose.</p>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash">seed agents --json
+seed agents --framework codex --json
+seed agents --framework openhands
+seed agents --framework claude-code
+seed agents --framework aider
+seed agents --framework cline
+seed agents --framework roo-code
+seed agents --framework continue
+seed agents --framework goose</code></pre>
+            </div>
+
+            <h3>Maintainer Proposal</h3>
+            <p>Generate upstream-ready issue or PR text with a concrete change request, integration contract, commands, and acceptance checklist.</p>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash">seed agents --framework codex --format proposal</code></pre>
+            </div>
+
+            <h3>MCP Server</h3>
+            <p>For hosts that support Model Context Protocol, <code>seed mcp</code> exposes structured planning, checking, and safe application over stdio.</p>
+            <div class="code-block">
+                <button class="copy-btn">Copy</button>
+                <pre><code class="language-bash">seed mcp</code></pre>
+            </div>
+            <ul>
+                <li><code>seed_plan</code> returns structured drift and plan data.</li>
+                <li><code>seed_check</code> returns match or drift status with stable exit-code semantics.</li>
+                <li><code>seed_apply</code> applies safe additions by default; deletion requires <code>prune: true</code>.</li>
+            </ul>
         </section>
 
         <!-- GBrain Tab -->
