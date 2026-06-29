@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import tempfile
@@ -277,6 +278,94 @@ def _display_template_source(source: str, base: Path) -> str:
     return source
 
 
+def _json_output(payload: dict) -> str:
+    return json.dumps(payload, indent=2, sort_keys=True)
+
+
+def _spec_aware_ignore(args, base: Path) -> list[str]:
+    """Ignore the active spec file when comparing its desired state to disk."""
+    patterns = list(getattr(args, "ignore", []) or [])
+    spec = getattr(args, "spec", None)
+    if not spec or spec == "-":
+        return patterns
+
+    spec_path = Path(spec)
+    if not spec_path.is_absolute():
+        spec_path = (base / spec_path).resolve()
+    try:
+        patterns.append(spec_path.relative_to(base.resolve()).as_posix())
+    except ValueError:
+        pass
+    return patterns
+
+
+def _plan_status(plan) -> str:
+    return "match" if not plan.steps else "drift"
+
+
+def _plan_json(plan) -> dict:
+    raw = plan.to_json()
+    return {
+        "status": _plan_status(plan),
+        "create": [s.path for s in plan.steps if s.op in ("mkdir", "create")],
+        "update": [s.path for s in plan.steps if s.op == "update"],
+        "delete": [s.path for s in plan.steps if s.op == "delete"],
+        "skipped_delete": [
+            s.path for s in plan.steps if s.op == "skip" and s.reason == "extra"
+        ],
+        "rename": [],
+        "errors": [],
+        "summary": raw["summary"],
+        "steps": raw["steps"],
+    }
+
+
+def _diff_status(result) -> str:
+    return "match" if result.is_clean() else "drift"
+
+
+def _diff_json(result) -> dict:
+    return {
+        "status": _diff_status(result),
+        "missing": result.missing,
+        "extra": result.extra,
+        "type_mismatch": result.type_mismatch,
+        "drift": result.drift,
+        "errors": [],
+    }
+
+
+def _nodes_to_mermaid(nodes: list) -> str:
+    lines = ["graph TD"]
+    node_ids: dict[str, str] = {}
+
+    def node_id(rel: str) -> str:
+        if rel not in node_ids:
+            node_ids[rel] = f"n{len(node_ids)}"
+        return node_ids[rel]
+
+    rels = {n.relpath.as_posix() for n in nodes}
+    if "." not in rels:
+        lines.append('  n0["."]')
+        node_ids["."] = "n0"
+
+    for node in sorted(nodes, key=lambda n: n.relpath.as_posix()):
+        rel = node.relpath.as_posix()
+        label = "." if rel == "." else rel + ("/" if node.is_dir else "")
+        lines.append(f'  {node_id(rel)}["{label}"]')
+
+    for node in sorted(nodes, key=lambda n: n.relpath.as_posix()):
+        rel = node.relpath.as_posix()
+        if rel == ".":
+            continue
+        parent = Path(rel).parent.as_posix()
+        if parent == ".":
+            parent = "."
+        lines.append(f"  {node_id(parent)} --> {node_id(rel)}")
+
+    return "\n".join(lines)
+
+
 def _parse_vars_with_folder(
     *,
     spec_path: Path,
@@ -418,6 +507,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub = p.add_subparsers(dest="cmd", required=False, help="Available commands")
 
+    # init
+    sinit = sub.add_parser(
+        "init",
+        description="Create a default filesystem.tree spec",
+        help="Create default filesystem.tree",
+    )
+    sinit.add_argument("--base", default=".", help="Base directory (default: current directory)")
+    sinit.add_argument("--force", action="store_true", help="Overwrite existing filesystem.tree")
+    sinit.add_argument("--json", action="store_true", help="Output in JSON format")
+
     # plan
     sp = sub.add_parser(
         "plan",
@@ -431,6 +530,18 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--dot", action="store_true", help="Output plan as Graphviz DOT format")
     sp.add_argument("--no-skip", action="store_true", dest="no_skip",
                     help="Hide SKIP lines in output for cleaner view")
+    sp.add_argument("--json", action="store_true", help="Output in JSON format")
+
+    # check
+    scheck = sub.add_parser(
+        "check",
+        description="Return whether filesystem drift exists",
+        help="Check filesystem drift",
+    )
+    scheck.add_argument("spec", help="Spec file")
+    scheck.add_argument("--base", default=".", help="Base directory (default: current directory)")
+    scheck.add_argument("--vars", action="append", help="Template variables (key=value)")
+    scheck.add_argument("--json", action="store_true", help="Output in JSON format")
 
     # apply
     sa = sub.add_parser(
@@ -441,9 +552,11 @@ def build_parser() -> argparse.ArgumentParser:
     sa.add_argument("spec", help="Spec file or plan.json")
     sa.add_argument("--base", default=".", help="Base directory (default: current directory)")
     sa.add_argument("--dangerous", action="store_true", help="Allow dangerous operations")
+    sa.add_argument("--prune", action="store_true", help="Explicitly remove paths not present in the spec")
     sa.add_argument("--dry-run", action="store_true", help="Show what would be executed without making changes")
     sa.add_argument("--yes", "-y", action="store_true", help="Create all optional items (marked with ?) without prompting")
     sa.add_argument("--skip-optional", action="store_true", help="Skip all optional items (marked with ?) without prompting")
+    sa.add_argument("--json", action="store_true", help="Output in JSON format")
 
     # register
     sreg = sub.add_parser(
@@ -464,9 +577,11 @@ def build_parser() -> argparse.ArgumentParser:
     ss.add_argument("spec", help="Spec file")
     ss.add_argument("--base", default=".", help="Base directory (default: current directory)")
     ss.add_argument("--dangerous", action="store_true", help="Required flag to enable sync (dangerous operation). Not required when using --dry-run")
+    ss.add_argument("--prune", action="store_true", help="Explicitly remove paths not present in the spec")
     ss.add_argument("--dry-run", action="store_true", help="Show what would be executed without making changes")
     ss.add_argument("--yes", "-y", action="store_true", help="Create all optional items (marked with ?) without prompting")
     ss.add_argument("--skip-optional", action="store_true", help="Skip all optional items (marked with ?) without prompting")
+    ss.add_argument("--json", action="store_true", help="Output in JSON format")
 
     # diff
     sd = sub.add_parser(
@@ -480,6 +595,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Ignore paths matching pattern (can be specified multiple times)")
     sd.add_argument("--no-sublevels", action="store_true",
                     help="Hide extras that are inside directories defined in the spec")
+    sd.add_argument("--json", action="store_true", help="Output in JSON format")
 
     # match
     sm = sub.add_parser(
@@ -566,6 +682,28 @@ def build_parser() -> argparse.ArgumentParser:
     sdoc.add_argument("spec", help="Spec file")
     sdoc.add_argument("--base", default=".", help="Base directory (default: current directory)")
     sdoc.add_argument("--fix", action="store_true", help="Automatically fix issues when possible")
+    sdoc.add_argument("--json", action="store_true", help="Output in JSON format")
+
+    # validate
+    svalidate = sub.add_parser(
+        "validate",
+        description="Validate a filesystem spec",
+        help="Validate spec",
+    )
+    svalidate.add_argument("spec", help="Spec file")
+    svalidate.add_argument("--base", default=".", help="Base directory (default: current directory)")
+    svalidate.add_argument("--fix", action="store_true", help="Automatically fix issues when possible")
+    svalidate.add_argument("--json", action="store_true", help="Output in JSON format")
+
+    # repair
+    srepair = sub.add_parser(
+        "repair",
+        description="Repair a filesystem spec when possible",
+        help="Repair spec",
+    )
+    srepair.add_argument("spec", help="Spec file")
+    srepair.add_argument("--base", default=".", help="Base directory (default: current directory)")
+    srepair.add_argument("--json", action="store_true", help="Output in JSON format")
 
     # capture
     sc = sub.add_parser(
@@ -577,6 +715,38 @@ def build_parser() -> argparse.ArgumentParser:
     sc.add_argument("--json", action="store_true", help="Output in JSON format")
     sc.add_argument("--dot", action="store_true", help="Output in Graphviz DOT format")
     sc.add_argument("--out", help="Output file path. If not specified, output is printed to stdout")
+
+    # import
+    simport = sub.add_parser(
+        "import",
+        description="Import an existing directory into a tree spec",
+        help="Import filesystem state",
+    )
+    simport.add_argument("path", nargs="?", default=".", help="Path to import")
+    simport.add_argument("--base", default=".", help="Base directory (default: current directory)")
+    simport.add_argument("--out", default="filesystem.tree", help="Output file path")
+    simport.add_argument("--json", action="store_true", help="Write JSON spec instead of tree text")
+
+    # graph
+    sgraph = sub.add_parser(
+        "graph",
+        description="Visualize a filesystem spec",
+        help="Visualize spec",
+    )
+    sgraph.add_argument("spec", help="Spec file")
+    sgraph.add_argument("--base", default=".", help="Base directory (default: current directory)")
+    sgraph.add_argument("--vars", action="append", help="Template variables (key=value)")
+    sgraph.add_argument("--format", choices=["dot", "mermaid", "ascii"], default="dot")
+    sgraph.add_argument("--json", action="store_true", help="Output in JSON format")
+
+    # agents
+    sagents = sub.add_parser(
+        "agents",
+        description="Show adoption metadata for agent frameworks",
+        help="Show agent integration metadata",
+    )
+    sagents.add_argument("--format", choices=["markdown", "json"], default="markdown")
+    sagents.add_argument("--json", action="store_true", help="Output in JSON format")
 
     # export
     se = sub.add_parser(
@@ -949,6 +1119,56 @@ def _run(args) -> int:
         "cmd": args.cmd,
     }
 
+    # ---------------- INIT ----------------
+    if args.cmd == "init":
+        target = base / "filesystem.tree"
+        as_json = bool(getattr(args, "json", False))
+        if target.exists() and not getattr(args, "force", False):
+            payload = {
+                "status": "refused",
+                "path": str(target),
+                "errors": ["filesystem.tree already exists"],
+            }
+            if as_json:
+                print(_json_output(payload))
+            else:
+                print("seed init: error: filesystem.tree already exists")
+                print("Use --force to overwrite it.")
+            return 4
+
+        target.write_text(".\n", encoding="utf-8")
+        payload = {"status": "created", "path": str(target), "errors": []}
+        if as_json:
+            print(_json_output(payload))
+        else:
+            print(f"Created {target}")
+        return 0
+
+    # ---------------- IMPORT ----------------
+    if args.cmd == "import":
+        import_base = (base / getattr(args, "path", ".")).resolve()
+        nodes = capture_nodes(import_base)
+        output = to_json(nodes) if getattr(args, "json", False) else to_tree_text(nodes)
+        out_path = getattr(args, "out", None)
+        if out_path:
+            Path(out_path).write_text(output, encoding="utf-8")
+            if getattr(args, "json", False):
+                print(
+                    _json_output(
+                        {
+                            "status": "imported",
+                            "path": str(Path(out_path)),
+                            "entries": len(nodes),
+                            "errors": [],
+                        }
+                    )
+                )
+            else:
+                print(f"Wrote {out_path}")
+        else:
+            print(output)
+        return 0
+
     
     # ---------------- PLAN ----------------
     if args.cmd == "plan":
@@ -964,7 +1184,7 @@ def _run(args) -> int:
             plan = build_plan(
                 nodes, 
                 base,
-                ignore=args.ignore,
+                ignore=_spec_aware_ignore(args, base),
                 allow_delete=False,
                 targets=args.targets,
                 target_mode=args.target_mode,
@@ -980,6 +1200,11 @@ def _run(args) -> int:
             if args.out:
                 export_plan(plan, Path(args.out))
                 return 0
+
+            if getattr(args, "json", False):
+                payload = _plan_json(plan)
+                print(_json_output(payload))
+                return 0 if payload["status"] == "match" else 2
 
             show_skip = not getattr(args, "no_skip", False)
             print(plan.to_text(show_skip=show_skip, color=color))
@@ -998,14 +1223,16 @@ def _run(args) -> int:
             run_hooks(hooks, "pre_apply", cwd=base, strict=True)
 
             if args.cmd == "apply":
+                prune = bool(getattr(args, "prune", False))
                 result = apply(
                     args.spec,
                     base,
-                    dangerous=args.dangerous,
+                    dangerous=args.dangerous or prune,
                     plugins=plugins,
                     dry_run=args.dry_run,
                     vars=vars,
-                    ignore=args.ignore,
+                    ignore=_spec_aware_ignore(args, base),
+                    allow_delete=prune,
                     targets=args.targets,
                     target_mode=args.target_mode,
                     include_optional=args.yes,
@@ -1014,16 +1241,17 @@ def _run(args) -> int:
                 )
             else:
                 # For sync, --dangerous is required unless --dry-run is used
-                if not args.dry_run and not args.dangerous:
-                    print("seed sync: error: --dangerous flag is required for sync operations (use --dry-run to preview without --dangerous)")
-                    return 1
+                prune = bool(getattr(args, "prune", False))
+                if not args.dry_run and not args.dangerous and not prune:
+                    print("seed sync: error: --prune or --dangerous is required for sync operations (use --dry-run to preview)")
+                    return 4
                 result = sync(
                     args.spec,
                     base,
-                    dangerous=args.dangerous,
+                    dangerous=args.dangerous or prune,
                     dry_run=args.dry_run,
                     vars=vars,
-                    ignore=args.ignore,
+                    ignore=_spec_aware_ignore(args, base),
                     targets=args.targets,
                     target_mode=args.target_mode,
                     include_optional=args.yes,
@@ -1038,6 +1266,19 @@ def _run(args) -> int:
             snapshot_id = result.pop("snapshot_id", None)
             spec_version = result.pop("spec_version", None)
             spec_path = result.pop("spec_path", None)
+            if getattr(args, "json", False):
+                payload = {
+                    "status": "dry_run" if args.dry_run else "applied",
+                    **result,
+                    "errors": [],
+                }
+                if spec_version:
+                    payload["spec_version"] = spec_version
+                    payload["spec_path"] = spec_path
+                if snapshot_id:
+                    payload["snapshot_id"] = snapshot_id
+                print(_json_output(payload))
+                return 0
             summary = Summary(**result)
             print(render_summary(summary, color=color))
             if spec_version:
@@ -1101,12 +1342,42 @@ def _run(args) -> int:
     # ---------------- DIFF ----------------
     if args.cmd == "diff":
         _, nodes = parse_spec_file(args.spec, vars, base, plugins, context)
-        res = diff(nodes, base, ignore=args.ignore, skip_sublevels=args.no_sublevels)
+        res = diff(
+            nodes,
+            base,
+            ignore=_spec_aware_ignore(args, base),
+            skip_sublevels=args.no_sublevels,
+        )
+        if getattr(args, "json", False):
+            payload = _diff_json(res)
+            print(_json_output(payload))
+            return 0 if res.is_clean() else 2
         print(render_list("Missing", res.missing, color=color))
         print(render_list("Extra", res.extra, color=color))
         print(render_list("Type Mismatch", res.type_mismatch, color=color))
         print(render_list("Drift", res.drift, color=color))
         return 0 if res.is_clean() else 1
+
+    # ---------------- CHECK ----------------
+    if args.cmd == "check":
+        try:
+            _, nodes = parse_spec_file(args.spec, vars, base, plugins, context)
+            res = diff(nodes, base, ignore=_spec_aware_ignore(args, base))
+        except Exception as e:
+            if getattr(args, "json", False):
+                print(_json_output({"status": "error", "errors": [str(e)]}))
+            else:
+                print(f"error: {e}", file=sys.stderr)
+            return 1
+
+        payload = _diff_json(res)
+        if getattr(args, "json", False):
+            print(_json_output(payload))
+        elif res.is_clean():
+            print("filesystem matches specification")
+        else:
+            print("drift detected")
+        return 0 if res.is_clean() else 2
 
     # ---------------- MATCH ----------------
     if args.cmd == "match":
@@ -1360,10 +1631,88 @@ def _run(args) -> int:
     if args.cmd == "doctor":
         _, nodes = parse_spec_file(args.spec, vars, base, plugins, context)
         issues = doctor(nodes, base, fix=args.fix)
+        if getattr(args, "json", False):
+            print(
+                _json_output(
+                    {
+                        "status": "valid" if not issues else "invalid",
+                        "valid": not issues,
+                        "issues": issues,
+                        "errors": [],
+                    }
+                )
+            )
+            return 0 if not issues else 3
         if issues:
             print(render_list("Issues", issues, color=color))
             return 1
         print("Spec is healthy.")
+        return 0
+
+    # ---------------- VALIDATE / REPAIR ----------------
+    if args.cmd in ("validate", "repair"):
+        try:
+            spec, nodes = parse_spec_file(args.spec, vars, base, plugins, context)
+            fix = args.cmd == "repair" or bool(getattr(args, "fix", False))
+            issues = doctor(nodes, base, fix=fix)
+            repaired = bool(issues and fix)
+            if repaired:
+                spec.write_text(to_tree_text(nodes) + "\n", encoding="utf-8")
+        except Exception as e:
+            if getattr(args, "json", False):
+                print(_json_output({"status": "error", "errors": [str(e)]}))
+            else:
+                print(f"error: {e}", file=sys.stderr)
+            return 1
+
+        payload = {
+            "status": "valid" if not issues else "invalid",
+            "valid": not issues,
+            "repaired": repaired,
+            "issues": issues,
+            "errors": [],
+        }
+        if getattr(args, "json", False):
+            print(_json_output(payload))
+        elif issues:
+            print(render_list("Issues", issues, color=color))
+        else:
+            print("Spec is healthy.")
+        return 0 if not issues else 3
+
+    # ---------------- GRAPH ----------------
+    if args.cmd == "graph":
+        try:
+            _, nodes = parse_spec_file(args.spec, vars, base, plugins, context)
+            graph_format = getattr(args, "format", "dot")
+            if graph_format == "dot":
+                from seed_cli.graphviz import nodes_to_dot
+
+                output = nodes_to_dot(nodes)
+            elif graph_format == "mermaid":
+                output = _nodes_to_mermaid(nodes)
+            else:
+                output = to_tree_text(nodes)
+        except Exception as e:
+            if getattr(args, "json", False):
+                print(_json_output({"status": "error", "errors": [str(e)]}))
+            else:
+                print(f"error: {e}", file=sys.stderr)
+            return 1
+
+        if getattr(args, "json", False):
+            print(
+                _json_output(
+                    {
+                        "status": "ok",
+                        "format": graph_format,
+                        "graph": output,
+                        "errors": [],
+                    }
+                )
+            )
+        else:
+            print(output)
         return 0
 
     # ---------------- CAPTURE ----------------
@@ -1380,6 +1729,18 @@ def _run(args) -> int:
             Path(args.out).write_text(output)
         else:
             print(output)
+        return 0
+
+    # ---------------- AGENTS ----------------
+    if args.cmd == "agents":
+        from seed_cli.agent import agent_manifest, agent_manifest_markdown
+
+        output_format = getattr(args, "format", "markdown")
+        as_json = bool(getattr(args, "json", False)) or output_format == "json"
+        if as_json:
+            print(_json_output(agent_manifest()))
+        else:
+            print(agent_manifest_markdown())
         return 0
 
     # ---------------- SPECS ----------------
@@ -2276,11 +2637,11 @@ class CommandSection:
 
 
 ROOT_COMMAND_SECTIONS = (
-    CommandSection("Plan & Apply", ("plan", "diff", "apply", "sync", "match")),
+    CommandSection("Plan & Apply", ("init", "plan", "check", "diff", "apply", "sync", "match")),
     CommandSection("Templates", ("register", "create", "templates")),
-    CommandSection("State & History", ("capture", "revert", "specs", "lock")),
-    CommandSection("Maintenance", ("doctor", "maintain", "hooks")),
-    CommandSection("Export & Utilities", ("export", "utils")),
+    CommandSection("State & History", ("import", "capture", "revert", "specs", "lock")),
+    CommandSection("Maintenance", ("validate", "repair", "doctor", "maintain", "hooks")),
+    CommandSection("Export & Utilities", ("graph", "export", "agents", "utils")),
 )
 
 LOCK_COMMAND_SECTIONS = (
@@ -2514,6 +2875,15 @@ def click_cli(
         ctx.exit(1)
 
 
+@click_cli.command("init", help="Create a default filesystem.tree spec.")
+@click.option("--base", default=".", show_default=True, help="Base directory.")
+@click.option("--force", is_flag=True, help="Overwrite an existing filesystem.tree.")
+@click.option("--json", "json_", is_flag=True, help="Emit machine-readable output.")
+@click.pass_context
+def init_command(ctx, base, force, json_):
+    return _dispatch(ctx, "init", base=base, force=force, json=json_)
+
+
 @click_cli.command("plan", help="Parse spec and generate an execution plan.")
 @click.argument("spec")
 @click.option("--base", default=".", show_default=True, help="Base directory.")
@@ -2521,21 +2891,34 @@ def click_cli(
 @click.option("--out", help="Output plan to a JSON file.")
 @click.option("--dot", is_flag=True, help="Output plan as Graphviz DOT.")
 @click.option("--no-skip", is_flag=True, help="Hide SKIP lines in output.")
+@click.option("--json", "json_", is_flag=True, help="Emit machine-readable output.")
 @click.pass_context
-def plan_command(ctx, spec, base, vars_, out, dot, no_skip):
-    return _dispatch(ctx, "plan", spec=spec, base=base, vars=list(vars_), out=out, dot=dot, no_skip=no_skip)
+def plan_command(ctx, spec, base, vars_, out, dot, no_skip, json_):
+    return _dispatch(ctx, "plan", spec=spec, base=base, vars=list(vars_), out=out, dot=dot, no_skip=no_skip, json=json_)
+
+
+@click_cli.command("check", help="Return whether filesystem drift exists.")
+@click.argument("spec")
+@click.option("--base", default=".", show_default=True, help="Base directory.")
+@click.option("--vars", "vars_", multiple=True, help="Template variable (key=value).")
+@click.option("--json", "json_", is_flag=True, help="Emit machine-readable output.")
+@click.pass_context
+def check_command(ctx, spec, base, vars_, json_):
+    return _dispatch(ctx, "check", spec=spec, base=base, vars=list(vars_), json=json_)
 
 
 @click_cli.command("apply", help="Execute a spec or saved plan.")
 @click.argument("spec")
 @click.option("--base", default=".", show_default=True, help="Base directory.")
 @click.option("--dangerous", is_flag=True, help="Allow dangerous operations.")
+@click.option("--prune", is_flag=True, help="Explicitly remove paths not present in the spec.")
 @click.option("--dry-run", is_flag=True, help="Preview without making changes.")
 @click.option("--yes", "-y", is_flag=True, help="Create all optional items.")
 @click.option("--skip-optional", is_flag=True, help="Skip all optional items.")
+@click.option("--json", "json_", is_flag=True, help="Emit machine-readable output.")
 @click.pass_context
-def apply_command(ctx, spec, base, dangerous, dry_run, yes, skip_optional):
-    return _dispatch(ctx, "apply", spec=spec, base=base, dangerous=dangerous, dry_run=dry_run, yes=yes, skip_optional=skip_optional)
+def apply_command(ctx, spec, base, dangerous, prune, dry_run, yes, skip_optional, json_):
+    return _dispatch(ctx, "apply", spec=spec, base=base, dangerous=dangerous, prune=prune, dry_run=dry_run, yes=yes, skip_optional=skip_optional, json=json_)
 
 
 @click_cli.command("register", help="Register project-local templates from a spec.")
@@ -2551,12 +2934,14 @@ def register_command(ctx, spec, base, vars_):
 @click.argument("spec")
 @click.option("--base", default=".", show_default=True, help="Base directory.")
 @click.option("--dangerous", is_flag=True, help="Required unless --dry-run is used.")
+@click.option("--prune", is_flag=True, help="Explicitly remove paths not present in the spec.")
 @click.option("--dry-run", is_flag=True, help="Preview without making changes.")
 @click.option("--yes", "-y", is_flag=True, help="Create all optional items.")
 @click.option("--skip-optional", is_flag=True, help="Skip all optional items.")
+@click.option("--json", "json_", is_flag=True, help="Emit machine-readable output.")
 @click.pass_context
-def sync_command(ctx, spec, base, dangerous, dry_run, yes, skip_optional):
-    return _dispatch(ctx, "sync", spec=spec, base=base, dangerous=dangerous, dry_run=dry_run, yes=yes, skip_optional=skip_optional)
+def sync_command(ctx, spec, base, dangerous, prune, dry_run, yes, skip_optional, json_):
+    return _dispatch(ctx, "sync", spec=spec, base=base, dangerous=dangerous, prune=prune, dry_run=dry_run, yes=yes, skip_optional=skip_optional, json=json_)
 
 
 @click_cli.command("diff", help="Compare spec with filesystem state.")
@@ -2564,9 +2949,10 @@ def sync_command(ctx, spec, base, dangerous, dry_run, yes, skip_optional):
 @click.option("--base", default=".", show_default=True, help="Base directory.")
 @click.option("--ignore", multiple=True, help="Ignore path matching glob.")
 @click.option("--no-sublevels", is_flag=True, help="Hide extras inside spec directories.")
+@click.option("--json", "json_", is_flag=True, help="Emit machine-readable output.")
 @click.pass_context
-def diff_command(ctx, spec, base, ignore, no_sublevels):
-    return _dispatch(ctx, "diff", spec=spec, base=base, ignore=list(ignore), no_sublevels=no_sublevels)
+def diff_command(ctx, spec, base, ignore, no_sublevels, json_):
+    return _dispatch(ctx, "diff", spec=spec, base=base, ignore=list(ignore), no_sublevels=no_sublevels, json=json_)
 
 
 @click_cli.command("match", help="Modify filesystem to match a spec.")
@@ -2668,9 +3054,29 @@ def revert_command(ctx, snapshot_id, base, list_snapshots, dry_run, delete_):
 @click.argument("spec")
 @click.option("--base", default=".", show_default=True, help="Base directory.")
 @click.option("--fix", is_flag=True, help="Automatically fix issues when possible.")
+@click.option("--json", "json_", is_flag=True, help="Emit machine-readable output.")
 @click.pass_context
-def doctor_command(ctx, spec, base, fix):
-    return _dispatch(ctx, "doctor", spec=spec, base=base, fix=fix)
+def doctor_command(ctx, spec, base, fix, json_):
+    return _dispatch(ctx, "doctor", spec=spec, base=base, fix=fix, json=json_)
+
+
+@click_cli.command("validate", help="Validate a filesystem spec.")
+@click.argument("spec")
+@click.option("--base", default=".", show_default=True, help="Base directory.")
+@click.option("--fix", is_flag=True, help="Automatically fix issues when possible.")
+@click.option("--json", "json_", is_flag=True, help="Emit machine-readable output.")
+@click.pass_context
+def validate_command(ctx, spec, base, fix, json_):
+    return _dispatch(ctx, "validate", spec=spec, base=base, fix=fix, json=json_)
+
+
+@click_cli.command("repair", help="Repair a filesystem spec when possible.")
+@click.argument("spec")
+@click.option("--base", default=".", show_default=True, help="Base directory.")
+@click.option("--json", "json_", is_flag=True, help="Emit machine-readable output.")
+@click.pass_context
+def repair_command(ctx, spec, base, json_):
+    return _dispatch(ctx, "repair", spec=spec, base=base, json=json_)
 
 
 @click_cli.command("capture", help="Capture current filesystem state as a spec.")
@@ -2681,6 +3087,49 @@ def doctor_command(ctx, spec, base, fix):
 @click.pass_context
 def capture_command(ctx, base, as_json, dot, out):
     return _dispatch(ctx, "capture", base=base, json=as_json, dot=dot, out=out)
+
+
+@click_cli.command("import", help="Import an existing directory into a tree spec.")
+@click.argument("path", required=False, default=".")
+@click.option("--base", default=".", show_default=True, help="Base directory.")
+@click.option("--out", default="filesystem.tree", show_default=True, help="Output spec path.")
+@click.option("--json", "json_", is_flag=True, help="Write JSON spec instead of tree text.")
+@click.pass_context
+def import_command(ctx, path, base, out, json_):
+    return _dispatch(ctx, "import", path=path, base=base, out=out, json=json_)
+
+
+@click_cli.command("graph", help="Visualize a filesystem spec.")
+@click.argument("spec")
+@click.option("--base", default=".", show_default=True, help="Base directory.")
+@click.option("--vars", "vars_", multiple=True, help="Template variable (key=value).")
+@click.option(
+    "--format",
+    "format_",
+    type=click.Choice(["dot", "mermaid", "ascii"]),
+    default="dot",
+    show_default=True,
+    help="Graph output format.",
+)
+@click.option("--json", "json_", is_flag=True, help="Emit machine-readable output.")
+@click.pass_context
+def graph_command(ctx, spec, base, vars_, format_, json_):
+    return _dispatch(ctx, "graph", spec=spec, base=base, vars=list(vars_), format=format_, json=json_)
+
+
+@click_cli.command("agents", help="Show adoption metadata for agent frameworks.")
+@click.option(
+    "--format",
+    "format_",
+    type=click.Choice(["markdown", "json"]),
+    default="markdown",
+    show_default=True,
+    help="Output format.",
+)
+@click.option("--json", "json_", is_flag=True, help="Emit machine-readable output.")
+@click.pass_context
+def agents_command(ctx, format_, json_):
+    return _dispatch(ctx, "agents", format=format_, json=json_)
 
 
 @click_cli.command(

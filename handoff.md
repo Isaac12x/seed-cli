@@ -1,0 +1,35 @@
+# Handoff - 2026-06-29
+
+Implemented the PRD-aligned agent-first filesystem state surfaces on branch
+`feature/codex/prd-agent-filesystem-state`.
+
+## Changed
+
+- Added `seed init`, `seed import`, `seed check`, `seed validate`, `seed repair`,
+  `seed graph`, and `seed agents`.
+- Added JSON output for `plan`, `check`, `diff`, `doctor`, `apply`, and `sync`.
+- Added explicit pruning spelling with `seed apply --prune` and
+  `seed sync --prune`.
+- Added `src/seed_cli/agent.py` and `docs/agents.md` for framework adoption by
+  OpenHands, Codex, Claude Code, Aider, Cline, Roo Code, Continue, and Goose.
+- Updated `README.md`, `CHANGELOG.md`, and the Superpowers implementation plan.
+
+## Verification
+
+- `uv run pytest -o addopts='' tests/test_agent.py tests/test_cli.py::test_cli_plan_json_reports_drift_with_exit_code_2 tests/test_cli.py::test_cli_check_json_uses_drift_exit_code tests/test_cli.py::test_cli_init_writes_default_filesystem_tree tests/test_cli.py::test_cli_import_alias_writes_tree_spec tests/test_cli.py::test_cli_validate_and_repair_aliases_doctor tests/test_cli.py::test_cli_graph_outputs_mermaid tests/test_cli.py::test_cli_apply_prune_deletes_extras_explicitly tests/test_cli.py::test_cli_sync_prune_is_safe_deletion_spelling tests/test_cli.py::test_cli_agents_json_manifest -q`
+
+Result: `11 passed`.
+
+- `uv run pytest -o addopts='' tests/test_cli.py tests/test_agent.py tests/test_capture.py tests/test_doctor.py tests/test_graphviz.py -q`
+
+Result: `66 passed`.
+
+- `uv run pytest -q`
+
+Result: `648 passed`, coverage `85.28%`.
+
+## Notes
+
+- A targeted `uv run pytest tests/test_cli.py -q` before changes passed all CLI
+  tests but failed the repository coverage gate because it ran only one file.
+- Full-suite verification passed locally after the argparse compatibility patch.

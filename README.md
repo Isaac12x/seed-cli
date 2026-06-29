@@ -62,18 +62,44 @@ seed maintain maintenance.yml
 seed maintain maintenance.yml --execute
 ```
 
+## Agent-First Filesystem State
+
+For autonomous coding agents, `filesystem.tree` can be the repository structure
+contract:
+
+```bash
+seed init
+seed import . --out filesystem.tree
+seed plan filesystem.tree --json
+seed apply filesystem.tree
+seed check filesystem.tree --json
+```
+
+`seed plan --json` and `seed check --json` provide machine-readable drift
+reports. `seed apply` does not delete extras unless pruning is explicit with
+`--prune`; `seed sync filesystem.tree --prune` is the converge-and-prune form.
+
+Framework maintainers can inspect the recommended integration contract with:
+
+```bash
+seed agents --json
+```
+
+See [docs/agents.md](docs/agents.md) for OpenHands, Codex, Claude Code, Aider,
+Cline, Roo Code, Continue, and Goose adoption guidance.
+
 ## Commands
 
 `seed --help` groups commands by workflow so related tasks are easier to scan.
 
 | Group | Commands | Description |
 | --- | --- | --- |
-| Plan & Apply | `plan`, `diff`, `apply`, `sync`, `match` | Preview, compare, and apply filesystem changes |
+| Plan & Apply | `init`, `plan`, `check`, `diff`, `apply`, `sync`, `match` | Preview, compare, and apply filesystem changes |
 | Templates | `register`, `create`, `templates` (`template`) | Register, instantiate, and manage reusable specs |
-| State & History | `capture`, `revert`, `specs`, `lock` | Capture state, recover snapshots, inspect history, and enforce structure versions |
-| Maintenance | `doctor`, `maintain`, `hooks` | Lint specs, run repository/service maintenance, and install hooks |
+| State & History | `import`, `capture`, `revert`, `specs`, `lock` | Capture state, recover snapshots, inspect history, and enforce structure versions |
+| Maintenance | `validate`, `repair`, `doctor`, `maintain`, `hooks` | Lint specs, run repository/service maintenance, and install hooks |
 | GBrain | `export gbrain`, `amend`, `specs watch --gbrain`, `hooks install --gbrain` | Compile a brain pack from a `.seed` spec, reconcile drift, and wire up brain hooks |
-| Export & Utilities | `export`, `utils` | Export trees/plans/DOT output and run helper tools |
+| Export & Utilities | `graph`, `export`, `agents`, `utils` | Export trees/plans/DOT output, agent metadata, and helper tools |
 
 ## Core Workflow
 
