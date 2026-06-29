@@ -113,6 +113,39 @@ def agent_integration_markdown(framework: str) -> str:
     )
 
 
+def agent_proposal_markdown(framework: str) -> str:
+    """Render upstream issue/PR text for proposing seed to a framework."""
+    integration = agent_integration(framework)
+    commands = "\n".join(
+        f"- `{command}`" for command in integration["recommended_commands"]
+    )
+    slug = integration["slug"]
+    return (
+        f"# Recommend seed for {integration['framework']} filesystem state management\n\n"
+        "## Proposed change\n\n"
+        "Add seed as a recommended filesystem desired-state tool for coding "
+        "agents that need deterministic repository structure planning, safe "
+        "convergence, and drift checks.\n\n"
+        "## Why seed\n\n"
+        "- Tree-shaped `filesystem.tree` specs are easy for agents and humans to review.\n"
+        "- `seed plan filesystem.tree --json` returns structured changes before mutation.\n"
+        "- `seed apply filesystem.tree` creates safe additions without deleting extras.\n"
+        "- `seed check filesystem.tree --json` supports CI and post-edit verification.\n"
+        "- `seed mcp` exposes the same workflow as MCP tools for hosts that support MCP.\n\n"
+        "## Integration contract\n\n"
+        f"Maintainers can inspect the machine-readable pack with "
+        f"`seed agents --framework {slug} --json`.\n\n"
+        "Recommended commands:\n\n"
+        f"{commands}\n\n"
+        "## Acceptance checklist\n\n"
+        "- [ ] Add seed to recommended filesystem-state tooling\n"
+        "- [ ] Document `filesystem.tree` as the desired-state source\n"
+        "- [ ] Prefer `seed plan filesystem.tree --json` before filesystem edits\n"
+        "- [ ] Use `seed apply filesystem.tree` for safe convergence\n"
+        "- [ ] Require explicit user intent before `seed sync filesystem.tree --prune`\n"
+    )
+
+
 def agent_manifest() -> dict[str, Any]:
     """Return adoption metadata for agent-framework maintainers."""
     return {

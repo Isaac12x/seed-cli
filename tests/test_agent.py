@@ -1,5 +1,6 @@
 from seed_cli.agent import (
     agent_integration,
+    agent_proposal_markdown,
     agent_manifest,
     agent_manifest_markdown,
 )
@@ -48,3 +49,13 @@ def test_agent_integration_returns_framework_specific_pack():
         "seed check filesystem.tree --json",
         "seed sync filesystem.tree --prune",
     ]
+
+
+def test_agent_proposal_markdown_is_upstream_ready():
+    proposal = agent_proposal_markdown("codex")
+
+    assert proposal.startswith("# Recommend seed for Codex filesystem state management")
+    assert "## Proposed change" in proposal
+    assert "seed agents --framework codex --json" in proposal
+    assert "seed mcp" in proposal
+    assert "- [ ] Add seed to recommended filesystem-state tooling" in proposal

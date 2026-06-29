@@ -84,6 +84,7 @@ Framework maintainers can inspect the recommended integration contract with:
 ```bash
 seed agents --json
 seed agents --framework codex --json
+seed agents --framework codex --format proposal
 seed mcp
 ```
 

@@ -197,6 +197,17 @@ def test_cli_agents_framework_json_pack(tmp_path):
     assert "seed plan filesystem.tree --json" in payload["default_instruction"]
 
 
+def test_cli_agents_framework_proposal_format(tmp_path):
+    code, out, err = run(
+        ["agents", "--framework", "codex", "--format", "proposal"], tmp_path
+    )
+
+    assert code == 0
+    assert "# Recommend seed for Codex filesystem state management" in out
+    assert "seed agents --framework codex --json" in out
+    assert "seed mcp" in out
+
+
 def test_cli_diff(tmp_path):
     spec = tmp_path / "spec.tree"
     spec.write_text("a/file.txt")

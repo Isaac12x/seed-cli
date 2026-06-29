@@ -746,7 +746,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Show agent integration metadata",
     )
     sagents.add_argument("--framework", help="Return one framework-specific pack")
-    sagents.add_argument("--format", choices=["markdown", "json"], default="markdown")
+    sagents.add_argument(
+        "--format",
+        choices=["markdown", "json", "proposal"],
+        default="markdown",
+    )
     sagents.add_argument("--json", action="store_true", help="Output in JSON format")
 
     # mcp
@@ -1746,6 +1750,7 @@ def _run(args) -> int:
             agent_integration_markdown,
             agent_manifest,
             agent_manifest_markdown,
+            agent_proposal_markdown,
         )
 
         output_format = getattr(args, "format", "markdown")
@@ -1753,11 +1758,14 @@ def _run(args) -> int:
         framework = getattr(args, "framework", None)
         try:
             if framework:
-                print(
-                    _json_output(agent_integration(framework))
-                    if as_json
-                    else agent_integration_markdown(framework)
-                )
+                if output_format == "proposal" and not as_json:
+                    print(agent_proposal_markdown(framework))
+                else:
+                    print(
+                        _json_output(agent_integration(framework))
+                        if as_json
+                        else agent_integration_markdown(framework)
+                    )
             elif as_json:
                 print(_json_output(agent_manifest()))
             else:
@@ -3152,7 +3160,7 @@ def graph_command(ctx, spec, base, vars_, format_, json_):
 @click.option(
     "--format",
     "format_",
-    type=click.Choice(["markdown", "json"]),
+    type=click.Choice(["markdown", "json", "proposal"]),
     default="markdown",
     show_default=True,
     help="Output format.",

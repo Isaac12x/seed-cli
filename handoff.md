@@ -17,6 +17,8 @@ Implemented the PRD-aligned agent-first filesystem state surfaces on branch
   notes.
 - Added `seed mcp`, a dependency-light stdio MCP server exposing `seed_plan`,
   `seed_check`, and `seed_apply` for frameworks that support MCP.
+- Added `seed agents --framework <name> --format proposal` to generate
+  upstream-ready issue or PR text for framework maintainers.
 - Updated `README.md`, `CHANGELOG.md`, and the Superpowers implementation plan.
 
 ## Verification
@@ -31,7 +33,7 @@ Result: `66 passed`.
 
 - `uv run pytest -q`
 
-Result: `659 passed`, coverage `85.40%`.
+Result: `661 passed`, coverage `85.41%`.
 
 - `uv run pytest -o addopts='' tests/test_agent.py::test_agent_integration_returns_framework_specific_pack tests/test_cli.py::test_cli_agents_framework_json_pack -q`
 
@@ -40,6 +42,10 @@ Result: `2 passed`.
 - `uv run pytest -o addopts='' tests/test_cli.py::test_cli_help_groups_top_level_commands tests/test_cli.py::test_build_parser_knows_agent_first_commands tests/test_mcp.py -q`
 
 Result: `6 passed`.
+
+- `uv run pytest -o addopts='' tests/test_agent.py::test_agent_proposal_markdown_is_upstream_ready tests/test_cli.py::test_cli_agents_framework_proposal_format -q`
+
+Result: `2 passed`.
 
 ## Notes
 

@@ -76,6 +76,15 @@ seed agents --framework goose
 Each framework pack includes an install command, maintainer pitch, default
 instruction text, recommended commands, and safety notes.
 
+To generate upstream-ready issue or PR text for a framework:
+
+```bash
+seed agents --framework codex --format proposal
+```
+
+The proposal format includes a concrete change request, rationale, integration
+contract, recommended commands, and acceptance checklist.
+
 ## MCP Server
 
 Frameworks with Model Context Protocol support can use seed without shell
