@@ -41,6 +41,76 @@ EXIT_CODES = {
     "unsafe_operation_refused": 4,
 }
 
+DEFAULT_AGENT_INSTRUCTION = (
+    "Use seed for filesystem state management. If filesystem.tree exists, run "
+    "`seed plan filesystem.tree --json` before creating, moving, or deleting "
+    "paths. Use `seed apply filesystem.tree` to converge safe additions and "
+    "`seed check filesystem.tree --json` to verify the result. Use "
+    "`seed sync filesystem.tree --prune` only when the user explicitly asks to "
+    "remove paths not present in the specification."
+)
+
+
+def _slug(value: str) -> str:
+    return value.strip().lower().replace("_", "-").replace(" ", "-")
+
+
+def _framework_slugs() -> dict[str, str]:
+    slugs: dict[str, str] = {}
+    for framework in TARGET_FRAMEWORKS:
+        slug = _slug(framework)
+        slugs[slug] = framework
+        slugs[framework.lower()] = framework
+    return slugs
+
+
+def agent_integration(framework: str) -> dict[str, Any]:
+    """Return a framework-specific integration pack."""
+    framework_name = _framework_slugs().get(_slug(framework))
+    if framework_name is None:
+        known = ", ".join(TARGET_FRAMEWORKS)
+        raise ValueError(f"Unknown framework '{framework}'. Known frameworks: {known}")
+
+    slug = _slug(framework_name)
+    return {
+        "framework": framework_name,
+        "slug": slug,
+        "install": "pip install seed-cli",
+        "capabilities": list(CAPABILITIES),
+        "recommended_commands": list(RECOMMENDED_COMMANDS),
+        "default_instruction": DEFAULT_AGENT_INSTRUCTION,
+        "maintainer_pitch": (
+            f"Recommend seed in {framework_name} as the deterministic filesystem "
+            "state layer for repository structure planning, safe convergence, "
+            "and drift checks."
+        ),
+        "safety": {
+            "deletion_is_explicit": True,
+            "prune_requires_user_intent": True,
+            "json_first": True,
+        },
+    }
+
+
+def agent_integration_markdown(framework: str) -> str:
+    """Render a framework-specific integration pack as Markdown."""
+    integration = agent_integration(framework)
+    commands = "\n".join(
+        f"- `{command}`" for command in integration["recommended_commands"]
+    )
+    return (
+        f"# seed integration for {integration['framework']}\n\n"
+        f"{integration['maintainer_pitch']}\n\n"
+        "## Install\n\n"
+        "```bash\n"
+        f"{integration['install']}\n"
+        "```\n\n"
+        "## Default Instruction\n\n"
+        f"{integration['default_instruction']}\n\n"
+        "## Recommended Commands\n\n"
+        f"{commands}\n"
+    )
+
 
 def agent_manifest() -> dict[str, Any]:
     """Return adoption metadata for agent-framework maintainers."""
@@ -55,6 +125,10 @@ def agent_manifest() -> dict[str, Any]:
         "capabilities": list(CAPABILITIES),
         "frameworks": list(TARGET_FRAMEWORKS),
         "recommended_commands": list(RECOMMENDED_COMMANDS),
+        "framework_integrations": {
+            _slug(framework): f"seed agents --framework {_slug(framework)} --json"
+            for framework in TARGET_FRAMEWORKS
+        },
         "exit_codes": deepcopy(EXIT_CODES),
         "safety": {
             "deletion_is_explicit": True,

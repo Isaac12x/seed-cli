@@ -187,6 +187,16 @@ def test_cli_agents_json_manifest(tmp_path):
     assert "seed plan filesystem.tree --json" in payload["recommended_commands"]
 
 
+def test_cli_agents_framework_json_pack(tmp_path):
+    code, out, err = run(["agents", "--framework", "codex", "--json"], tmp_path)
+
+    payload = json.loads(out)
+    assert code == 0
+    assert payload["framework"] == "Codex"
+    assert payload["slug"] == "codex"
+    assert "seed plan filesystem.tree --json" in payload["default_instruction"]
+
+
 def test_cli_diff(tmp_path):
     spec = tmp_path / "spec.tree"
     spec.write_text("a/file.txt")

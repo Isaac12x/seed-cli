@@ -12,6 +12,9 @@ Implemented the PRD-aligned agent-first filesystem state surfaces on branch
   `seed sync --prune`.
 - Added `src/seed_cli/agent.py` and `docs/agents.md` for framework adoption by
   OpenHands, Codex, Claude Code, Aider, Cline, Roo Code, Continue, and Goose.
+- Added `seed agents --framework <name>` for framework-specific integration
+  packs with maintainer pitch, default instruction text, commands, and safety
+  notes.
 - Updated `README.md`, `CHANGELOG.md`, and the Superpowers implementation plan.
 
 ## Verification
@@ -26,7 +29,11 @@ Result: `66 passed`.
 
 - `uv run pytest -q`
 
-Result: `648 passed`, coverage `85.28%`.
+Result: `650 passed`, coverage `85.24%`.
+
+- `uv run pytest -o addopts='' tests/test_agent.py::test_agent_integration_returns_framework_specific_pack tests/test_cli.py::test_cli_agents_framework_json_pack -q`
+
+Result: `2 passed`.
 
 ## Notes
 

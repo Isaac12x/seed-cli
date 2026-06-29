@@ -59,3 +59,19 @@ seed agents --json
 
 That emits the supported framework list, capabilities, recommended commands,
 exit codes, and safety notes as JSON.
+
+For a copy-paste pack tailored to a specific framework:
+
+```bash
+seed agents --framework codex --json
+seed agents --framework openhands
+seed agents --framework claude-code
+seed agents --framework aider
+seed agents --framework cline
+seed agents --framework roo-code
+seed agents --framework continue
+seed agents --framework goose
+```
+
+Each framework pack includes an install command, maintainer pitch, default
+instruction text, recommended commands, and safety notes.

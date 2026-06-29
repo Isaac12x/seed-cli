@@ -745,6 +745,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Show adoption metadata for agent frameworks",
         help="Show agent integration metadata",
     )
+    sagents.add_argument("--framework", help="Return one framework-specific pack")
     sagents.add_argument("--format", choices=["markdown", "json"], default="markdown")
     sagents.add_argument("--json", action="store_true", help="Output in JSON format")
 
@@ -1733,14 +1734,30 @@ def _run(args) -> int:
 
     # ---------------- AGENTS ----------------
     if args.cmd == "agents":
-        from seed_cli.agent import agent_manifest, agent_manifest_markdown
+        from seed_cli.agent import (
+            agent_integration,
+            agent_integration_markdown,
+            agent_manifest,
+            agent_manifest_markdown,
+        )
 
         output_format = getattr(args, "format", "markdown")
         as_json = bool(getattr(args, "json", False)) or output_format == "json"
-        if as_json:
-            print(_json_output(agent_manifest()))
-        else:
-            print(agent_manifest_markdown())
+        framework = getattr(args, "framework", None)
+        try:
+            if framework:
+                print(
+                    _json_output(agent_integration(framework))
+                    if as_json
+                    else agent_integration_markdown(framework)
+                )
+            elif as_json:
+                print(_json_output(agent_manifest()))
+            else:
+                print(agent_manifest_markdown())
+        except ValueError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
         return 0
 
     # ---------------- SPECS ----------------
@@ -3118,6 +3135,7 @@ def graph_command(ctx, spec, base, vars_, format_, json_):
 
 
 @click_cli.command("agents", help="Show adoption metadata for agent frameworks.")
+@click.option("--framework", help="Return one framework-specific pack.")
 @click.option(
     "--format",
     "format_",
@@ -3128,8 +3146,8 @@ def graph_command(ctx, spec, base, vars_, format_, json_):
 )
 @click.option("--json", "json_", is_flag=True, help="Emit machine-readable output.")
 @click.pass_context
-def agents_command(ctx, format_, json_):
-    return _dispatch(ctx, "agents", format=format_, json=json_)
+def agents_command(ctx, framework, format_, json_):
+    return _dispatch(ctx, "agents", framework=framework, format=format_, json=json_)
 
 
 @click_cli.command(

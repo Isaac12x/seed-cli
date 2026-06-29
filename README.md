@@ -83,6 +83,7 @@ Framework maintainers can inspect the recommended integration contract with:
 
 ```bash
 seed agents --json
+seed agents --framework codex --json
 ```
 
 See [docs/agents.md](docs/agents.md) for OpenHands, Codex, Claude Code, Aider,
