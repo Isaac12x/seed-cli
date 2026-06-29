@@ -85,6 +85,129 @@ def test_cli_plan(tmp_path):
     assert "Plan:" in out
 
 
+def test_cli_plan_json_reports_drift_with_exit_code_2(tmp_path):
+    spec = tmp_path / "filesystem.tree"
+    spec.write_text(".\n└── src/\n    └── app.py\n", encoding="utf-8")
+
+    code, out, err = run(["plan", "filesystem.tree", "--json"], tmp_path)
+
+    payload = json.loads(out)
+    assert code == 2
+    assert payload["status"] == "drift"
+    assert payload["create"] == ["src", "src/app.py"]
+    assert payload["delete"] == []
+    assert payload["errors"] == []
+
+
+def test_cli_check_json_uses_drift_exit_code(tmp_path):
+    spec = tmp_path / "filesystem.tree"
+    spec.write_text(".\n└── src/\n", encoding="utf-8")
+
+    code, out, err = run(["check", "filesystem.tree", "--json"], tmp_path)
+
+    payload = json.loads(out)
+    assert code == 2
+    assert payload["status"] == "drift"
+    assert payload["missing"] == ["src"]
+
+
+def test_cli_init_writes_default_filesystem_tree(tmp_path):
+    code, out, err = run(["init"], tmp_path)
+
+    assert code == 0
+    assert (tmp_path / "filesystem.tree").read_text(encoding="utf-8") == ".\n"
+
+
+def test_cli_import_alias_writes_tree_spec(tmp_path):
+    (tmp_path / "src").mkdir()
+
+    code, out, err = run(["import", ".", "--out", "filesystem.tree"], tmp_path)
+
+    assert code == 0
+    assert "src/" in (tmp_path / "filesystem.tree").read_text(encoding="utf-8")
+
+
+def test_cli_validate_and_repair_aliases_doctor(tmp_path):
+    spec = tmp_path / "filesystem.tree"
+    spec.write_text("a.txt\na.txt\n", encoding="utf-8")
+
+    validate_code, validate_out, _ = run(
+        ["validate", "filesystem.tree", "--json"], tmp_path
+    )
+    repair_code, repair_out, _ = run(["repair", "filesystem.tree", "--json"], tmp_path)
+
+    assert validate_code == 3
+    assert json.loads(validate_out)["valid"] is False
+    assert repair_code == 3
+    assert json.loads(repair_out)["repaired"] is True
+
+
+def test_cli_graph_outputs_mermaid(tmp_path):
+    spec = tmp_path / "filesystem.tree"
+    spec.write_text(".\n└── src/\n    └── app.py\n", encoding="utf-8")
+
+    code, out, err = run(
+        ["graph", "filesystem.tree", "--format", "mermaid"], tmp_path
+    )
+
+    assert code == 0
+    assert "graph TD" in out
+    assert "src/app.py" in out
+
+
+def test_cli_apply_prune_deletes_extras_explicitly(tmp_path):
+    (tmp_path / "tmp").mkdir()
+    spec = tmp_path / "filesystem.tree"
+    spec.write_text(".\n", encoding="utf-8")
+
+    code, out, err = run(["apply", "filesystem.tree", "--prune"], tmp_path)
+
+    assert code == 0
+    assert not (tmp_path / "tmp").exists()
+
+
+def test_cli_sync_prune_is_safe_deletion_spelling(tmp_path):
+    (tmp_path / "tmp").mkdir()
+    spec = tmp_path / "filesystem.tree"
+    spec.write_text(".\n", encoding="utf-8")
+
+    code, out, err = run(["sync", "filesystem.tree", "--prune"], tmp_path)
+
+    assert code == 0
+    assert not (tmp_path / "tmp").exists()
+
+
+def test_cli_agents_json_manifest(tmp_path):
+    code, out, err = run(["agents", "--json"], tmp_path)
+
+    payload = json.loads(out)
+    assert code == 0
+    assert payload["tool"] == "seed"
+    assert "Codex" in payload["frameworks"]
+    assert "seed plan filesystem.tree --json" in payload["recommended_commands"]
+
+
+def test_cli_agents_framework_json_pack(tmp_path):
+    code, out, err = run(["agents", "--framework", "codex", "--json"], tmp_path)
+
+    payload = json.loads(out)
+    assert code == 0
+    assert payload["framework"] == "Codex"
+    assert payload["slug"] == "codex"
+    assert "seed plan filesystem.tree --json" in payload["default_instruction"]
+
+
+def test_cli_agents_framework_proposal_format(tmp_path):
+    code, out, err = run(
+        ["agents", "--framework", "codex", "--format", "proposal"], tmp_path
+    )
+
+    assert code == 0
+    assert "# Recommend seed for Codex filesystem state management" in out
+    assert "seed agents --framework codex --json" in out
+    assert "seed mcp" in out
+
+
 def test_cli_diff(tmp_path):
     spec = tmp_path / "spec.tree"
     spec.write_text("a/file.txt")
@@ -173,6 +296,7 @@ def test_cli_help_groups_top_level_commands(tmp_path):
 
     assert "templates  Manage reusable templates. (alias: template)" in out
     assert "template   Manage reusable templates." not in out
+    assert "mcp" in out
     assert out.index("Plan & Apply:") < out.index("Templates:")
     assert out.index("Templates:") < out.index("State & History:")
 
@@ -219,6 +343,25 @@ def test_cli_specs_watch_parser():
     assert args.cmd == "specs"
     assert args.specs_action == "watch"
     assert args.interval == 0.25
+
+
+def test_build_parser_knows_agent_first_commands():
+    from seed_cli.cli import build_parser
+
+    parser = build_parser()
+
+    plan_args = parser.parse_args(["plan", "filesystem.tree", "--json"])
+    sync_args = parser.parse_args(["sync", "filesystem.tree", "--prune"])
+    agents_args = parser.parse_args(["agents", "--json"])
+    mcp_args = parser.parse_args(["mcp"])
+
+    assert plan_args.cmd == "plan"
+    assert plan_args.json is True
+    assert sync_args.cmd == "sync"
+    assert sync_args.prune is True
+    assert agents_args.cmd == "agents"
+    assert agents_args.json is True
+    assert mcp_args.cmd == "mcp"
 
 
 def test_cli_export_tree(tmp_path):
