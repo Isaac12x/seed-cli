@@ -52,3 +52,39 @@ Result: `2 passed`.
 - A targeted `uv run pytest tests/test_cli.py -q` before changes passed all CLI
   tests but failed the repository coverage gate because it ran only one file.
 - Full-suite verification passed locally after the argparse compatibility patch.
+
+---
+
+# Handoff - 2026-06-29 - v1.0.13 release
+
+Prepared the `v1.0.13` release on branch `feature/codex/release-v1.0.13`.
+
+## Changed
+
+- Bumped `pyproject.toml` package version from `1.0.12` to `1.0.13`.
+- Promoted the changelog's agent-first filesystem state entries from
+  `Unreleased` to `1.0.13` dated `2026-06-29`.
+- Updated `docs/index.html` to show `v1.0.13` as the latest release, add agent
+  workflow coverage, document `seed agents`, document `seed mcp`, and align sync
+  examples with explicit `--prune` deletion.
+- Updated the release workflow dispatch example tag to `v1.0.13`.
+- Made the MCP server report `seed-cli`'s package version dynamically instead of
+  hardcoding a release number.
+- Added test coverage that checks the MCP initialize response version matches
+  `seed_cli.get_version()`.
+
+## Verification
+
+- `uv run pytest -o addopts='' tests/test_mcp.py tests/test_version_fallbacks.py tests/test_agent.py tests/test_cli.py::test_cli_agents_json_manifest tests/test_cli.py::test_cli_agents_framework_proposal_format tests/test_cli.py::test_cli_init_writes_default_filesystem_tree tests/test_cli.py::test_cli_import_alias_writes_tree_spec tests/test_cli.py::test_cli_check_json_uses_drift_exit_code tests/test_cli.py::test_cli_apply_prune_deletes_extras_explicitly tests/test_cli.py::test_cli_sync_prune_is_safe_deletion_spelling -q`
+
+Result: `24 passed`.
+
+- `uv run pytest -q`
+
+Result: `661 passed`, coverage `85.41%`.
+
+- `uv build`
+
+Result: built `dist/seed_cli-1.0.13.tar.gz` and
+`dist/seed_cli-1.0.13-py3-none-any.whl`; local generated artifacts were removed
+after validation.

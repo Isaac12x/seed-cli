@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 from typing import Any, TextIO
 
+from seed_cli import get_version
 from seed_cli.apply import apply as apply_spec
 from seed_cli.diff import diff as diff_spec
 from seed_cli.parsers import parse_spec
@@ -249,7 +250,7 @@ def handle_message(message: dict[str, Any]) -> dict[str, Any] | None:
             {
                 "protocolVersion": PROTOCOL_VERSION,
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "seed-cli", "version": "1.0.12"},
+                "serverInfo": {"name": "seed-cli", "version": get_version()},
             },
         )
 
